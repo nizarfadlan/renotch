@@ -7,6 +7,7 @@ struct CompactNotchView: View {
     @ObservedObject var timer: TimerService
     @ObservedObject var shelf: ShelfStore
     @ObservedObject var activity: DeveloperActivityService
+    @ObservedObject var todos: TodoStore
 
     var body: some View {
         Group {
@@ -21,11 +22,12 @@ struct CompactNotchView: View {
                 }
             case .browserMedia:
                 if let media = browser.media {
-                    CompactBrowserMediaView(media: media, artwork: browser.mediaArtwork)
+                    CompactBrowserMediaView(media: media, artwork: browser.mediaArtwork, timer: timer)
                 }
             case .music:
                 CompactMusicView(
                     music: music,
+                    timer: timer,
                     message: model.transientMessage,
                     showsTrackInfo: model.settings.resolvedCompactMusicShowsTrackInfo
                 )
@@ -34,17 +36,8 @@ struct CompactNotchView: View {
             }
         }
         .id(presentationID)
-        .transition(
-            .move(edge: .bottom)
-                .combined(with: .notchBlur(radius: 7))
-                .combined(with: .opacity)
-        )
-        .animation(.snappy(duration: 0.35), value: model.settings.resolvedCompactContent)
-        .animation(.snappy(duration: 0.35), value: browser.presentation)
-        .animation(.snappy(duration: 0.35), value: model.activeMediaSource)
-        .animation(.snappy(duration: 0.35), value: music.playbackActivationDate)
-        .animation(.snappy(duration: 0.35), value: activity.glance?.id)
-        .animation(.snappy(duration: 0.35), value: activity.primaryServerActivity.id)
+        .transition(.identity)
+        .animation(.spring(response: 0.32, dampingFraction: 0.92), value: presentationID)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.leading, compactContentLeadingInset)
         .padding(.trailing, compactContentTrailingInset)
@@ -71,6 +64,7 @@ struct CompactNotchView: View {
         case .music:
             CompactMusicView(
                 music: music,
+                timer: timer,
                 message: model.transientMessage,
                 showsTrackInfo: model.settings.resolvedCompactMusicShowsTrackInfo
             )
@@ -82,6 +76,8 @@ struct CompactNotchView: View {
             CompactCalendarView(service: model.calendar)
         case .shelf:
             CompactShelfView(shelf: shelf)
+        case .todo:
+            CompactTodoView(store: todos, message: model.transientMessage)
         }
     }
 

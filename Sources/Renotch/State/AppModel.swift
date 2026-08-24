@@ -7,7 +7,6 @@ final class AppModel: ObservableObject {
     @Published var settings: NotchSettings {
         didSet {
             settingsStore.save(settings)
-            clipboard.setEnabled(settings.clipboardHistoryEnabled)
             applyLaunchAtLoginIfNeeded(oldValue: oldValue.launchAtLogin)
             if mode == .compact {
                 selectedSection = compactDestination
@@ -23,18 +22,21 @@ final class AppModel: ObservableObject {
     @Published var transientMessage: String?
     @Published var settingsError: String?
     @Published private(set) var expandedSectionOverride: NotchSection?
+    @Published private(set) var focusTakeoverSite: String = ""
+    @Published private(set) var focusTakeoverAppName: String = ""
+    @Published private(set) var focusTakeoverTargetApp: NSRunningApplication?
 
     /// Delay before the file drop success state collapses back to compact.
     var successDismissalDelay: TimeInterval = 1.2
 
     let timer: TimerService
-    let clipboard: ClipboardService
     let music: MusicService
     let browser: BrowserActivityService
     let calendar: AppleCalendarService
     let shelf: ShelfStore
     let todos: TodoStore
     let activity: DeveloperActivityService
+    let focusBlocker: FocusBlockerService
 
     var onPanelConfigurationChanged: (() -> Void)?
     var onVisibilityChanged: ((Bool) -> Void)?
@@ -48,7 +50,9 @@ final class AppModel: ObservableObject {
     private var browserActivityCancellable: AnyCancellable?
     private var musicActivityCancellable: AnyCancellable?
     private var activityGlanceCancellable: AnyCancellable?
+    private var focusBlockerCancellable: AnyCancellable?
     private var modeBeforeFileDrop: NotchMode = .compact
+    private var modeBeforeFocusTakeover: NotchMode = .compact
     private var isApplyingLoginSetting = false
 
     init(defaults: UserDefaults = .standard) {
@@ -57,13 +61,14 @@ final class AppModel: ObservableObject {
         let loadedSettings = settingsStore.load()
         settings = loadedSettings
         timer = TimerService(defaults: defaults)
-        clipboard = ClipboardService(defaults: defaults)
         music = MusicService()
         browser = BrowserActivityService()
         calendar = AppleCalendarService()
         shelf = ShelfStore()
         todos = TodoStore(defaults: defaults)
         activity = DeveloperActivityService()
+        focusBlocker = FocusBlockerService()
+        FocusBlockerOverlayController.shared.blockerService = focusBlocker
 
         let didOnboard = defaults.bool(forKey: "virtualNotch.didCompleteOnboarding")
         mode = didOnboard ? .compact : .expanded
@@ -71,7 +76,7 @@ final class AppModel: ObservableObject {
         expandedSectionOverride = nil
         isPinned = !didOnboard
 
-        clipboard.start(enabled: settings.clipboardHistoryEnabled)
+        focusBlocker.start(appModel: self)
         timer.onCompletion = { [weak self] completedMode in
             Task { @MainActor in
                 self?.handleTimerCompletion(completedMode: completedMode)
@@ -81,6 +86,9 @@ final class AppModel: ObservableObject {
             self?.objectWillChange.send()
         }
         musicActivityCancellable = music.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        focusBlockerCancellable = focusBlocker.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
         activityGlanceCancellable = activity.$glance
@@ -97,7 +105,7 @@ final class AppModel: ObservableObject {
 
     var isExpanded: Bool {
         switch mode {
-        case .expanded, .fileDrop, .success:
+        case .expanded, .fileDrop, .success, .focusTakeover:
             return true
         case .compact:
             return false
@@ -152,13 +160,16 @@ final class AppModel: ObservableObject {
             )
         case .fileDrop, .success:
             return NSSize(width: NotchSettings.dragWidth, height: NotchSettings.dragHeight)
+        case .focusTakeover:
+            let screen = NSScreen.main?.frame.size ?? NSSize(width: 1440, height: 900)
+            return screen
         }
     }
 
     func hoverChanged(_ hovering: Bool) {
         collapseWorkItem?.cancel()
         guard !isDraggingFileOver else { return }
-        guard mode != .fileDrop, mode != .success else { return }
+        guard mode != .fileDrop, mode != .success, mode != .focusTakeover else { return }
         guard settings.expandOnHover else { return }
         if hovering {
             if mode == .compact {
@@ -185,9 +196,40 @@ final class AppModel: ObservableObject {
                 pin: true,
                 preferSelectedSection: true
             )
-        case .fileDrop, .success:
+        case .fileDrop, .success, .focusTakeover:
             break
         }
+    }
+
+    func triggerFocusTakeover(site: String, appName: String, targetApp: NSRunningApplication?) {
+        guard mode != .focusTakeover else { return }
+        collapseWorkItem?.cancel()
+        modeBeforeFocusTakeover = (mode == .focusTakeover ? .compact : mode)
+        focusTakeoverSite = site
+        focusTakeoverAppName = appName
+        focusTakeoverTargetApp = targetApp
+        mode = .focusTakeover
+        onPanelConfigurationChanged?()
+    }
+
+    func closeTabAndResume() {
+        let app = focusTakeoverTargetApp
+        dismissFocusTakeover()
+        focusBlocker.closeTabAndResume(for: app)
+    }
+
+    func bypassFocusTakeover(minutes: Int = 5) {
+        dismissFocusTakeover()
+        focusBlocker.bypass(minutes: minutes)
+    }
+
+    func dismissFocusTakeover() {
+        guard mode == .focusTakeover else { return }
+        mode = modeBeforeFocusTakeover
+        focusTakeoverSite = ""
+        focusTakeoverAppName = ""
+        focusTakeoverTargetApp = nil
+        onPanelConfigurationChanged?()
     }
 
     func expand(
@@ -222,7 +264,7 @@ final class AppModel: ObservableObject {
     }
 
     func closeFromOutsideClick() {
-        guard mode != .compact, mode != .fileDrop, mode != .success, isPinned else { return }
+        guard mode != .compact, mode != .fileDrop, mode != .success, mode != .focusTakeover, isPinned else { return }
         collapse(force: true)
     }
 
@@ -361,13 +403,6 @@ final class AppModel: ObservableObject {
         startTimer(minutes: customTimerMinutes, mode: mode)
     }
 
-    func copyClipboardItem(_ item: ClipboardItem) {
-        clipboard.copy(item)
-        showMessage("Copied")
-        isPinned = false
-        collapse(force: true)
-    }
-
     func showMessage(_ message: String) {
         messageWorkItem?.cancel()
         transientMessage = message
@@ -456,12 +491,10 @@ final class AppModel: ObservableObject {
     private func pauseServices() {
         music.pause()
         activity.pause()
-        clipboard.pause()
     }
 
     private func resumeServices() {
         music.resume()
         activity.resume()
-        clipboard.resume()
     }
 }

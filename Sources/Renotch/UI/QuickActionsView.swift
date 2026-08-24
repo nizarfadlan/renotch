@@ -24,7 +24,7 @@ struct QuickActionsView: View {
                 model.startTimer(minutes: 25, mode: .focus)
             }
             ActionTile(title: "Clear", icon: "trash") {
-                model.clipboard.clear()
+                NSPasteboard.general.clearContents()
                 model.showMessage("Clipboard cleared")
             }
             ActionTile(title: "Settings", icon: "gearshape") {

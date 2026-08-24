@@ -15,7 +15,6 @@ swiftc \
     Sources/Renotch/Services/SettingsStore.swift \
     Sources/Renotch/Services/NotificationService.swift \
     Sources/Renotch/Services/TimerService.swift \
-    Sources/Renotch/Services/ClipboardService.swift \
     Sources/Renotch/Services/ShelfStore.swift \
     Sources/Renotch/Services/TodoStore.swift \
     Sources/Renotch/Services/MusicService.swift \

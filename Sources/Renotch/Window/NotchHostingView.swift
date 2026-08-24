@@ -35,6 +35,8 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
 
     required init(rootView: Content) {
         super.init(rootView: rootView)
+        translatesAutoresizingMaskIntoConstraints = true
+        autoresizingMask = [.width, .height]
         try? FileManager.default.createDirectory(
             at: materializedDropDirectory,
             withIntermediateDirectories: true

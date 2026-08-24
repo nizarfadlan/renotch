@@ -27,6 +27,7 @@ private enum GlassMaterialLevel: Double, CaseIterable, Identifiable {
 private enum SettingsTab: String, CaseIterable, Identifiable {
     case general = "General"
     case appearance = "Appearance"
+    case blocker = "Focus Blocker"
     case privacy = "Privacy"
 
     var id: String { rawValue }
@@ -35,6 +36,7 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "switch.2"
         case .appearance: return "sparkles"
+        case .blocker: return "shield.lefthalf.filled"
         case .privacy: return "hand.raised.fill"
         }
     }
@@ -43,7 +45,8 @@ private enum SettingsTab: String, CaseIterable, Identifiable {
         switch self {
         case .general: return "Behavior, display target & timing"
         case .appearance: return "Notch style, sizing & padding"
-        case .privacy: return "Clipboard history & permissions"
+        case .blocker: return "Distraction blocker & screen takeover"
+        case .privacy: return "Notifications & permissions"
         }
     }
 }
@@ -52,6 +55,7 @@ struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     @EnvironmentObject private var screenManager: ScreenManager
     @State private var selectedTab: SettingsTab = .general
+    @State private var newRuleInput = ""
 
     var body: some View {
         HStack(spacing: 0) {
@@ -183,6 +187,8 @@ struct SettingsView: View {
                     generalTabContent
                 case .appearance:
                     appearanceTabContent
+                case .blocker:
+                    focusBlockerTabContent
                 case .privacy:
                     privacyTabContent
                 }
@@ -638,37 +644,6 @@ struct SettingsView: View {
 
     private var privacyTabContent: some View {
         VStack(spacing: 16) {
-            // Clipboard History Card
-            SettingCard(title: "Clipboard History", icon: "doc.on.clipboard.fill", iconColor: .green) {
-                VStack(spacing: 0) {
-                    SettingRow(
-                        title: "Save clipboard history",
-                        subtitle: "Store up to 20 recent text items locally on this Mac. Concealed/password items are skipped."
-                    ) {
-                        Toggle("", isOn: $model.settings.clipboardHistoryEnabled)
-                            .toggleStyle(.switch)
-                            .labelsHidden()
-                    }
-
-                    Divider().opacity(0.12).padding(.vertical, 12)
-
-                    SettingRow(
-                        title: "Stored Items",
-                        subtitle: "\(model.clipboard.items.count) item\(model.clipboard.items.count == 1 ? "" : "s") currently saved in history"
-                    ) {
-                        Button("Clear History", role: .destructive) {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                model.clipboard.clear()
-                            }
-                        }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.small)
-                        .tint(.red.opacity(0.8))
-                        .disabled(model.clipboard.items.isEmpty)
-                    }
-                }
-            }
-
             // Notifications Card
             SettingCard(title: "Notifications", icon: "bell.badge.fill", iconColor: .pink) {
                 SettingRow(
@@ -719,6 +694,275 @@ struct SettingsView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Focus Blocker Tab Content
+
+    private var focusBlockerTabContent: some View {
+        VStack(spacing: 16) {
+            // Master Blocker Card
+            SettingCard(title: "Distraction Shield & Screen Takeover", icon: "shield.fill", iconColor: .red) {
+                VStack(spacing: 0) {
+                    SettingRow(
+                        title: "Enable Focus Blocker",
+                        subtitle: "Automatically trigger fullscreen takeover when opening distracting websites"
+                    ) {
+                        Toggle("", isOn: focusBlockerEnabledBinding)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                    }
+
+                    Divider().opacity(0.12).padding(.vertical, 10)
+
+                    SettingRow(
+                        title: "Strict Pomodoro Only",
+                        subtitle: "Only block websites during active Focus sessions (not during Break or idle)"
+                    ) {
+                        Toggle("", isOn: focusBlockerStrictBinding)
+                            .toggleStyle(.switch)
+                            .labelsHidden()
+                    }
+
+                    Divider().opacity(0.12).padding(.vertical, 10)
+
+                    // Accessibility Permissions Status
+                    HStack(spacing: 12) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("macOS Accessibility Permission")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.primary)
+
+                            Text(model.focusBlocker.isAccessibilityGranted
+                                 ? "Permission active. Re:notch can detect frontmost browser window titles."
+                                 : "Required to detect active browser window titles and tabs.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        if model.focusBlocker.isAccessibilityGranted {
+                            HStack(spacing: 4) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .foregroundStyle(.green)
+                                Text("Active")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(.green)
+                            }
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Color.green.opacity(0.12))
+                            .clipShape(Capsule())
+                        } else {
+                            Button("Grant Access") {
+                                model.focusBlocker.requestAccessibilityPermission()
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .controlSize(.small)
+                            .tint(.blue)
+                        }
+                    }
+                }
+            }
+
+            // Blacklist Rules Management Card
+            SettingCard(title: "Blocked Domains & Keywords", icon: "list.bullet.rectangle.portrait.fill", iconColor: .orange) {
+                VStack(alignment: .leading, spacing: 14) {
+                    Text("Add domain names or keywords (e.g. youtube.com, twitter.com, threads.net).")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+
+                    // Add Custom Rule Field
+                    HStack(spacing: 8) {
+                        TextField("Enter domain or keyword (e.g. reddit.com)...", text: $newRuleInput)
+                            .textFieldStyle(.plain)
+                            .padding(8)
+                            .background(Color.white.opacity(0.06))
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                    .stroke(Color.white.opacity(0.12), lineWidth: 0.5)
+                            )
+                            .onSubmit {
+                                addRule()
+                            }
+
+                        Button {
+                            addRule()
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "plus")
+                                Text("Add")
+                            }
+                            .font(.system(size: 12, weight: .medium))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Color.blue)
+                            .foregroundStyle(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(newRuleInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    }
+
+                    // Presets Quick Add
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Quick Presets")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+
+                        let presets = ["youtube.com", "threads.net", "instagram.com", "x.com", "tiktok.com", "reddit.com", "netflix.com"]
+                        FlowLayout(spacing: 6) {
+                            ForEach(presets, id: \.self) { preset in
+                                let isAdded = model.settings.resolvedFocusBlockerCustomRules.contains(preset)
+                                Button {
+                                    togglePreset(preset)
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: isAdded ? "checkmark.circle.fill" : "plus.circle")
+                                            .font(.system(size: 10))
+                                        Text(preset)
+                                            .font(.system(size: 11, weight: .medium))
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(isAdded ? Color.red.opacity(0.18) : Color.white.opacity(0.06))
+                                    .foregroundStyle(isAdded ? Color.red.opacity(0.9) : Color.secondary)
+                                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                            .stroke(isAdded ? Color.red.opacity(0.3) : Color.white.opacity(0.1), lineWidth: 0.5)
+                                    )
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+
+                    Divider().opacity(0.12).padding(.vertical, 4)
+
+                    // Current Active Rules List
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Active Rules (\(model.settings.resolvedFocusBlockerCustomRules.count))")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.primary)
+
+                            Spacer()
+
+                            Button("Reset to Defaults") {
+                                model.settings.focusBlockerCustomRules = FocusBlockerService.defaultRules
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.blue)
+                            .buttonStyle(.plain)
+                        }
+
+                        FlowLayout(spacing: 8) {
+                            ForEach(model.settings.resolvedFocusBlockerCustomRules, id: \.self) { rule in
+                                HStack(spacing: 6) {
+                                    Text(rule)
+                                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                                        .foregroundStyle(.primary)
+
+                                    Button {
+                                        removeRule(rule)
+                                    } label: {
+                                        Image(systemName: "xmark")
+                                            .font(.system(size: 9, weight: .bold))
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 5)
+                                .background(Color.white.opacity(0.08))
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                                        .stroke(Color.white.opacity(0.14), lineWidth: 0.5)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Preview & Testing Card
+            SettingCard(title: "Preview & Diagnostics", icon: "play.circle.fill", iconColor: .purple) {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Test Fullscreen Takeover Overlay")
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundStyle(.primary)
+
+                        Text("Preview the fluid Apple Design spring animation and HTML takeover screen.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Button {
+                        model.triggerFocusTakeover(
+                            site: "youtube.com",
+                            appName: "Google Chrome",
+                            targetApp: NSWorkspace.shared.frontmostApplication
+                        )
+                    } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "sparkles")
+                            Text("Preview Takeover")
+                        }
+                        .font(.system(size: 12, weight: .semibold))
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                    .tint(.purple)
+                }
+            }
+        }
+    }
+
+    private var focusBlockerEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { model.settings.resolvedFocusBlockerEnabled },
+            set: { model.settings.focusBlockerEnabled = $0 }
+        )
+    }
+
+    private var focusBlockerStrictBinding: Binding<Bool> {
+        Binding(
+            get: { model.settings.resolvedFocusBlockerStrictPomodoroOnly },
+            set: { model.settings.focusBlockerStrictPomodoroOnly = $0 }
+        )
+    }
+
+    private func addRule() {
+        let trimmed = newRuleInput.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else { return }
+        var current = model.settings.resolvedFocusBlockerCustomRules
+        if !current.contains(trimmed) {
+            current.append(trimmed)
+            model.settings.focusBlockerCustomRules = current
+        }
+        newRuleInput = ""
+    }
+
+    private func removeRule(_ rule: String) {
+        var current = model.settings.resolvedFocusBlockerCustomRules
+        current.removeAll(where: { $0 == rule })
+        model.settings.focusBlockerCustomRules = current
+    }
+
+    private func togglePreset(_ preset: String) {
+        var current = model.settings.resolvedFocusBlockerCustomRules
+        if current.contains(preset) {
+            current.removeAll(where: { $0 == preset })
+        } else {
+            current.append(preset)
+        }
+        model.settings.focusBlockerCustomRules = current
     }
 
     // MARK: - Bindings & Helpers
@@ -1086,22 +1330,46 @@ private struct NotchAppearancePreview: View {
     }
 }
 
-// MARK: - Visual Effect Blur Helper
+// MARK: - Flow Layout
 
-private struct VisualEffectBlur: NSViewRepresentable {
-    let material: NSVisualEffectView.Material
-    let blendingMode: NSVisualEffectView.BlendingMode
+private struct FlowLayout: Layout {
+    var spacing: CGFloat = 8
 
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let visualEffectView = NSVisualEffectView()
-        visualEffectView.material = material
-        visualEffectView.blendingMode = blendingMode
-        visualEffectView.state = .active
-        return visualEffectView
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? 400
+        var currentX: CGFloat = 0
+        var currentY: CGFloat = 0
+        var lineHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if currentX + size.width > width && currentX > 0 {
+                currentX = 0
+                currentY += lineHeight + spacing
+                lineHeight = 0
+            }
+            currentX += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+        }
+
+        return CGSize(width: width, height: currentY + lineHeight)
     }
 
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-        nsView.material = material
-        nsView.blendingMode = blendingMode
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var currentX: CGFloat = bounds.minX
+        var currentY: CGFloat = bounds.minY
+        var lineHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if currentX + size.width > bounds.maxX && currentX > bounds.minX {
+                currentX = bounds.minX
+                currentY += lineHeight + spacing
+                lineHeight = 0
+            }
+            subview.place(at: CGPoint(x: currentX, y: currentY), proposal: ProposedViewSize(size))
+            currentX += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+        }
     }
 }

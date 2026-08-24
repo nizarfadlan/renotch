@@ -342,3 +342,23 @@ extension Color {
     static let notchMuted = Color(red: 0.62, green: 0.64, blue: 0.70)
     static let musicAccent = Color(red: 0.96, green: 0.20, blue: 0.36)
 }
+
+struct VisualEffectBlur: NSViewRepresentable {
+    var material: NSVisualEffectView.Material = .fullScreenUI
+    var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow
+
+    func makeNSView(context: Context) -> NSVisualEffectView {
+        let visualEffectView = NSVisualEffectView()
+        visualEffectView.material = material
+        visualEffectView.blendingMode = blendingMode
+        visualEffectView.state = .active
+        visualEffectView.translatesAutoresizingMaskIntoConstraints = true
+        visualEffectView.autoresizingMask = [.width, .height]
+        return visualEffectView
+    }
+
+    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
+        nsView.material = material
+        nsView.blendingMode = blendingMode
+    }
+}

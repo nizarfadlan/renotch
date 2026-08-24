@@ -4,6 +4,7 @@ import SwiftUI
 struct CompactBrowserMediaView: View {
     let media: BrowserMediaActivity
     let artwork: NSImage?
+    @ObservedObject var timer: TimerService
 
     var body: some View {
         HStack(spacing: 9) {
@@ -43,10 +44,50 @@ struct CompactBrowserMediaView: View {
 
             Spacer(minLength: 4)
 
-            Image(systemName: media.isPlaying ? "waveform" : "pause.fill")
-                .font(.system(size: 10, weight: .semibold))
-                .foregroundStyle(media.isPlaying ? Color.red : .secondary)
-                .frame(width: 22)
+            if timer.isActive {
+                // Apple Dynamic Island Live Timer Pill
+                HStack(spacing: 4.5) {
+                    ZStack {
+                        Circle()
+                            .stroke(Color.white.opacity(0.14), lineWidth: 1.5)
+                        Circle()
+                            .trim(from: 0, to: timer.progress)
+                            .stroke(
+                                timer.currentMode.tint,
+                                style: StrokeStyle(lineWidth: 1.5, lineCap: .round)
+                            )
+                            .rotationEffect(.degrees(-90))
+                            .animation(.linear(duration: 0.25), value: timer.progress)
+                        Image(systemName: timer.isPaused ? "pause.fill" : timer.currentMode.icon)
+                            .font(.system(size: 5.5, weight: .bold))
+                            .foregroundStyle(timer.currentMode.tint)
+                    }
+                    .frame(width: 12, height: 12)
+
+                    Text(TimerService.formatted(timer.remaining))
+                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(timer.currentMode.tint)
+                        .fixedSize()
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(
+                    Capsule()
+                        .fill(timer.currentMode.tint.opacity(0.12))
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(timer.currentMode.tint.opacity(0.22), lineWidth: 0.5)
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                .animation(.snappy(duration: 0.25), value: timer.isActive)
+            } else {
+                Image(systemName: media.isPlaying ? "waveform" : "pause.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(media.isPlaying ? Color.red : .secondary)
+                    .frame(width: 22)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityElement(children: .combine)

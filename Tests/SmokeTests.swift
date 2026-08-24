@@ -30,7 +30,7 @@ struct SmokeTests {
         expect(settings.compactWidth == 180, "compact width lower bound")
         expect(settings.compactHeight == 300, "compact height upper bound")
         expect(settings.expandedWidth == 800, "expanded width upper bound")
-        expect(settings.expandedHeight == 260, "expanded height upper bound")
+        expect(settings.expandedHeight == 800, "expanded height upper bound")
         expect(settings.resolvedCompactCornerRadius == 40, "compact corner radius upper bound")
         expect(settings.resolvedCompactContentLeadingPadding == 100, "compact content leading padding upper bound")
         expect(settings.resolvedCompactContentTrailingPadding == 100, "compact content trailing padding upper bound")
@@ -41,6 +41,8 @@ struct SmokeTests {
         expect(settings.collapseDelay == 0.3, "collapse delay lower bound")
         expect(settings.resolvedCompactContent == .music, "music is the default compact content")
         expect(CompactNotchContent.calendar.section == .calendar, "calendar compact destination")
+        expect(CompactNotchContent.todo.section == .todo, "todo compact destination")
+        expect(CompactNotchContent.todo.title == "To-Do List", "todo compact title")
         expect(
             NotchSettings.compactWidthRange == NotchSettings.expandedWidthRange,
             "compact and expanded width ranges match"
@@ -58,10 +60,10 @@ struct SmokeTests {
         expect(customCompactSettings.compactWidth == 512, "custom compact width is preserved")
         expect(customCompactSettings.compactHeight == 96, "custom compact height is preserved")
 
-        expect(NotchSettings.default.compactWidth == 335, "collapsed width")
+        expect(NotchSettings.default.compactWidth == 548, "collapsed width")
         expect(NotchSettings.default.compactHeight == 30, "recommended compact height")
-        expect(NotchSettings.default.expandedWidth == 460, "recommended expanded width")
-        expect(NotchSettings.default.expandedHeight == 220, "expanded menu height")
+        expect(NotchSettings.default.expandedWidth == 548, "recommended expanded width")
+        expect(NotchSettings.default.expandedHeight == 209, "expanded menu height")
         expect(NotchSettings.codingExpandedWidth == 500, "coding menu width")
         expect(NotchSettings.codingExpandedHeight == 240, "coding menu height")
         expect(NotchSettings.expandedMinWidth == 440, "expanded header minimum width")
@@ -120,11 +122,35 @@ struct SmokeTests {
             source: .spotify
         )
         expect(spotifySnapshot?.track?.source == .spotify, "Spotify metadata source")
+        expect(spotifySnapshot?.track?.id == "spotify:spotify:track:demo", "Spotify track ID")
+        expect(spotifySnapshot?.track?.cacheKey == "spotify:spotify track:spotify artist", "MusicTrack cacheKey")
         expect(spotifySnapshot?.track?.duration == 245, "Spotify millisecond duration conversion")
         expect(spotifySnapshot?.position == 61, "Spotify playback position")
         expect(spotifySnapshot?.volume == 0.75, "Spotify volume normalization")
+        expect(spotifySnapshot?.artworkURL?.absoluteString == "https://i.scdn.co/image/demo", "Spotify artwork URL")
         expect(spotifySnapshot?.shuffleEnabled == true, "Spotify shuffle state parsing")
         expect(spotifySnapshot?.repeatMode == .all, "Spotify repeat state parsing")
+
+        let appleMusicEmptyIdSnapshot = MusicService.parseMetadata(
+            [
+                "playing",
+                "",
+                "Song Title",
+                "Song Artist",
+                "Song Album",
+                "180",
+                "30",
+                "80",
+                " \n https://is1-ssl.mzstatic.com/image/demo.jpg \t ",
+                "false",
+                "off"
+            ].joined(separator: separator),
+            source: .appleMusic
+        )
+        expect(appleMusicEmptyIdSnapshot?.track?.id == "appleMusic:Song Title:Song Artist:Song Album", "Empty track ID fallback")
+        expect(appleMusicEmptyIdSnapshot?.artworkURL?.absoluteString == "https://is1-ssl.mzstatic.com/image/demo.jpg", "Whitespace-trimmed artwork URL")
+        expect(appleMusicEmptyIdSnapshot?.track?.cacheKey == "appleMusic:song title:song artist", "Apple Music track cacheKey")
+
         expect(MusicService.parseAppleScriptBoolean("true"), "AppleScript boolean parsing")
         expect(MusicService.parseRepeatMode("one") == .one, "repeat-one parsing")
         expect(MusicRepeatMode.off.next(for: .appleMusic) == .all, "Apple Music repeat starts with all")
@@ -405,16 +431,6 @@ struct SmokeTests {
         }
         defer { defaults.removePersistentDomain(forName: suite) }
 
-        let pasteboard = NSPasteboard(name: .init("VirtualNotchSmokeTests"))
-        let clipboard = ClipboardService(pasteboard: pasteboard, defaults: defaults)
-        for index in 0..<25 {
-            clipboard.ingest("Item \(index)")
-        }
-        clipboard.ingest("Item 24")
-        expect(clipboard.items.count == 20, "clipboard history cap")
-        expect(clipboard.items.first?.content == "Item 24", "clipboard newest item")
-        expect(clipboard.items.last?.content == "Item 5", "clipboard oldest retained item")
-
         let todos = TodoStore(defaults: defaults)
         expect(!todos.add("   "), "empty todo rejection")
         expect(todos.add("Ship File Shelf"), "todo creation")
@@ -494,10 +510,10 @@ struct SmokeTests {
             forKey: "virtualNotch.settings.v1"
         )
         let migrated = SettingsStore(defaults: legacyDefaults).load()
-        expect(migrated.compactWidth == 335, "legacy compact width migration")
+        expect(migrated.compactWidth == 548, "legacy compact width migration")
         expect(migrated.compactHeight == 30, "legacy compact height migration")
-        expect(migrated.expandedWidth == 460, "legacy expanded width migration")
-        expect(migrated.expandedHeight == 220, "legacy expanded height migration")
+        expect(migrated.expandedWidth == 548, "legacy expanded width migration")
+        expect(migrated.expandedHeight == 209, "legacy expanded height migration")
 
         if failures.isEmpty {
             print("All Re:notch smoke tests passed.")

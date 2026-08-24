@@ -5,13 +5,16 @@ struct NotchView: View {
     @EnvironmentObject private var model: AppModel
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isHovering = false
-    @State private var displayedWidth: CGFloat = NotchSettings.default.compactWidth
-    @State private var displayedHeight: CGFloat = NotchSettings.default.compactHeight
 
     private var topCornerRadius: CGFloat {
-        model.mode == .compact
-            ? CGFloat(model.settings.resolvedCompactCornerRadius)
-            : 18
+        switch model.mode {
+        case .compact:
+            return CGFloat(model.settings.resolvedCompactCornerRadius)
+        case .expanded, .fileDrop, .success:
+            return 18
+        case .focusTakeover:
+            return 0
+        }
     }
 
     private var bottomCornerRadius: CGFloat {
@@ -19,6 +22,7 @@ struct NotchView: View {
         case .compact: return CGFloat(model.settings.resolvedCompactCornerRadius)
         case .expanded: return 26
         case .fileDrop, .success: return 30
+        case .focusTakeover: return 0
         }
     }
 
@@ -35,6 +39,7 @@ struct NotchView: View {
         case .expanded: return 0.38
         case .fileDrop: return 0.62
         case .success: return 0.42
+        case .focusTakeover: return 0.65
         }
     }
 
@@ -44,11 +49,12 @@ struct NotchView: View {
         case .expanded: return 14
         case .fileDrop: return 20
         case .success: return 16
+        case .focusTakeover: return 32
         }
     }
 
     private var shadowColor: Color {
-        if model.mode == .fileDrop || model.mode == .success {
+        if model.mode == .fileDrop || model.mode == .success || model.mode == .focusTakeover {
             return Color.notchAccent.opacity(shadowOpacity)
         }
         switch model.settings.resolvedAppearance {
@@ -74,25 +80,22 @@ struct NotchView: View {
         guard !reduceMotion else { return nil }
         switch model.mode {
         case .compact:
-            // Damping near critical: collapses glide in without a bounce tail.
-            return .spring(response: 0.38, dampingFraction: 0.96, blendDuration: 0.1)
+            // Critically damped (1.0) spring for smooth, glitch-free collapse
+            return .spring(response: 0.36, dampingFraction: 1.0)
         case .expanded:
-            return .spring(response: 0.44, dampingFraction: 0.93, blendDuration: 0.12)
+            // Fluid expansion with subtle momentum
+            return .spring(response: 0.38, dampingFraction: 0.88)
         case .fileDrop:
-            return .spring(response: 0.28, dampingFraction: 0.72)
+            return .spring(response: 0.28, dampingFraction: 0.78)
         case .success:
             return .spring(response: 0.28, dampingFraction: 0.82)
+        case .focusTakeover:
+            return .spring(response: 0.52, dampingFraction: 0.92)
         }
     }
 
-    private var contentAnimation: Animation? {
-        reduceMotion
-            ? .easeOut(duration: 0.12)
-            : .easeOut(duration: 0.22).delay(0.05)
-    }
-
     private var contentTransition: AnyTransition {
-        reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity)
+        .identity
     }
 
     private var notchWidth: CGFloat {
@@ -103,31 +106,28 @@ struct NotchView: View {
         model.currentSize.height
     }
 
-    private var animationTarget: NotchAnimationTarget {
-        NotchAnimationTarget(
-            mode: model.mode,
-            width: notchWidth,
-            height: notchHeight,
-            reduceMotion: reduceMotion
-        )
-    }
-
     var body: some View {
         ZStack(alignment: .top) {
-            notchSurface
+            if model.mode == .focusTakeover {
+                FocusTakeoverView(
+                    timer: model.timer,
+                    site: model.focusTakeoverSite,
+                    appName: model.focusTakeoverAppName
+                )
+                .transition(.opacity)
+            } else {
+                notchSurface
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .preferredColorScheme(.dark)
-        .task(id: animationTarget) {
-            await animateContainer(to: animationTarget)
-        }
     }
 
     private var notchContent: some View {
         ZStack(alignment: .top) {
             switch model.mode {
             case .expanded:
-                ExpandedNotchView(timer: model.timer, clipboard: model.clipboard)
+                ExpandedNotchView(timer: model.timer)
                     .transition(contentTransition)
             case .fileDrop:
                 FileDropView(isTargeted: model.isDraggingFileOver)
@@ -135,13 +135,16 @@ struct NotchView: View {
             case .success:
                 FileDropSuccessView()
                     .transition(contentTransition)
+            case .focusTakeover:
+                EmptyView()
             case .compact:
                 CompactNotchView(
                     music: model.music,
                     browser: model.browser,
                     timer: model.timer,
                     shelf: model.shelf,
-                    activity: model.activity
+                    activity: model.activity,
+                    todos: model.todos
                 )
                     .transition(contentTransition)
                     .onTapGesture {
@@ -149,12 +152,12 @@ struct NotchView: View {
                     }
             }
         }
-        .animation(contentAnimation, value: model.mode)
     }
 
     private var animatedNotchContent: some View {
         notchContent
-            .frame(width: displayedWidth, height: displayedHeight, alignment: .top)
+            .frame(width: notchWidth, height: notchHeight, alignment: .top)
+            .clipped()
     }
 
     @ViewBuilder
@@ -186,66 +189,30 @@ struct NotchView: View {
 
     private var notchSurface: some View {
         styledNotchSurface
-        .contentShape(notchShape)
-        .onTapGesture {
-            if model.mode == .compact {
-                model.notchClicked()
+            .contentShape(Rectangle())
+            .onTapGesture {
+                if model.mode == .compact {
+                    model.notchClicked()
+                }
             }
-        }
-        .animation(containerAnimation, value: bottomCornerRadius)
-        .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.94), value: isHovering)
-        .animation(.easeInOut(duration: 0.28), value: model.settings.resolvedAppearance)
-        .animation(.easeOut(duration: 0.16), value: model.settings.resolvedGlassBlurRadius)
-        .onHover { hovering in
-            guard hovering != isHovering else { return }
-            isHovering = hovering
-            if hovering {
-                NSHapticFeedbackManager.defaultPerformer.perform(
-                    .alignment,
-                    performanceTime: .default
-                )
+            .animation(containerAnimation, value: model.currentSize)
+            .animation(containerAnimation, value: model.mode)
+            .animation(reduceMotion ? nil : .spring(response: 0.3, dampingFraction: 0.94), value: isHovering)
+            .animation(.easeInOut(duration: 0.28), value: model.settings.resolvedAppearance)
+            .animation(.easeOut(duration: 0.16), value: model.settings.resolvedGlassBlurRadius)
+            .onHover { hovering in
+                guard hovering != isHovering else { return }
+                isHovering = hovering
+                if hovering {
+                    NSHapticFeedbackManager.defaultPerformer.perform(
+                        .alignment,
+                        performanceTime: .default
+                    )
+                }
+                model.hoverChanged(hovering)
             }
-            model.hoverChanged(hovering)
-        }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
-            model.removeMissingShelfFiles()
-        }
+            .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+                model.removeMissingShelfFiles()
+            }
     }
-
-    @MainActor
-    private func animateContainer(to target: NotchAnimationTarget) async {
-        guard !target.reduceMotion else {
-            displayedWidth = target.width
-            displayedHeight = target.height
-            return
-        }
-
-        let isGrowing = target.width > displayedWidth || target.height > displayedHeight
-        if isGrowing {
-            withAnimation(containerAnimation) {
-                displayedWidth = target.width
-            }
-            try? await Task.sleep(nanoseconds: 20_000_000)
-            guard !Task.isCancelled else { return }
-            withAnimation(containerAnimation) {
-                displayedHeight = target.height
-            }
-        } else {
-            withAnimation(containerAnimation) {
-                displayedHeight = target.height
-            }
-            try? await Task.sleep(nanoseconds: 20_000_000)
-            guard !Task.isCancelled else { return }
-            withAnimation(containerAnimation) {
-                displayedWidth = target.width
-            }
-        }
-    }
-}
-
-private struct NotchAnimationTarget: Hashable {
-    let mode: NotchMode
-    let width: CGFloat
-    let height: CGFloat
-    let reduceMotion: Bool
 }

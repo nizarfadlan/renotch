@@ -21,8 +21,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
         window.titlebarAppearsTransparent = true
         window.contentViewController = hostingController
         window.isReleasedWhenClosed = false
-        window.level = .floating
-        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        window.level = .normal
+        window.collectionBehavior = [.moveToActiveSpace]
         window.animationBehavior = .documentWindow
         window.setFrameAutosaveName("Renotch.SettingsWindow.v3")
         window.setContentSize(NSSize(width: 960, height: 640))
@@ -38,10 +38,10 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 
     func present() {
         guard let window else { return }
+        NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         showWindow(nil)
         window.makeKeyAndOrderFront(nil)
-        window.orderFrontRegardless()
     }
 
     func windowWillClose(_ notification: Notification) {

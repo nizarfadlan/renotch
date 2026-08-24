@@ -3,7 +3,6 @@ import SwiftUI
 struct ExpandedNotchView: View {
     @EnvironmentObject private var model: AppModel
     @ObservedObject var timer: TimerService
-    @ObservedObject var clipboard: ClipboardService
 
     var body: some View {
         VStack(spacing: 0) {
@@ -70,8 +69,6 @@ struct ExpandedNotchView: View {
             TimerView(timer: timer)
         case .calendar:
             CalendarView(service: model.calendar)
-        case .clipboard:
-            ClipboardView(clipboard: clipboard)
         case .shelf:
             FileShelfView(shelf: model.shelf)
         case .todo:
@@ -125,10 +122,26 @@ struct ExpandedNotchView: View {
             }
 
             if timer.isActive {
-                Text(TimerService.formatted(timer.remaining))
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .monospacedDigit()
-                    .foregroundStyle(timer.currentMode.tint)
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(timer.currentMode.tint)
+                        .frame(width: 5, height: 5)
+                    Text(TimerService.formatted(timer.remaining))
+                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(timer.currentMode.tint)
+                }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 3.5)
+                .background(
+                    Capsule()
+                        .fill(timer.currentMode.tint.opacity(0.14))
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(timer.currentMode.tint.opacity(0.25), lineWidth: 0.5)
+                )
+                .fixedSize()
             }
 
             Button {
@@ -141,6 +154,7 @@ struct ExpandedNotchView: View {
                     .background(Circle().fill(Color.white.opacity(0.07)))
             }
             .buttonStyle(.plain)
+            .fixedSize()
         }
     }
 

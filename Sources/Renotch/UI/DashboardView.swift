@@ -1,8 +1,13 @@
 import SwiftUI
 
-/// Unified dashboard: every section lives on one continuous surface as a slim
-/// row, separated by hairline dividers instead of individual cards.
+/// Apple-grade unified dashboard for Re:notch.
+/// Implements WWDC fluid interface principles:
+/// - Translucent frosted materials with specular highlights
+/// - Direct manipulation with spring-based press feedback
+/// - Live dynamic indicators (pulsing dots, progress rings, animated waveforms)
+/// - Bento-grid organization for instant glanceability and inline controls
 struct DashboardView: View {
+    @EnvironmentObject private var model: AppModel
     @ObservedObject var music: MusicService
     @ObservedObject var activity: DeveloperActivityService
     @ObservedObject var shelf: ShelfStore
@@ -11,265 +16,497 @@ struct DashboardView: View {
     @ObservedObject var calendar: AppleCalendarService
     let navigate: (NotchSection) -> Void
 
+    private let columns = [
+        GridItem(.flexible(), spacing: 8),
+        GridItem(.flexible(), spacing: 8)
+    ]
+
     var body: some View {
-        VStack(spacing: 0) {
-            rowsView
+        ScrollView(.vertical, showsIndicators: false) {
+            VStack(spacing: 8) {
+                // Top Hero Bento: Media & Focus Timer
+                HStack(spacing: 8) {
+                    musicBentoCard
+                    timerBentoCard
+                }
+
+                // Grid Bento: Activity, Calendar, Todos, Shelf
+                LazyVGrid(columns: columns, spacing: 8) {
+                    activityBentoCard
+                    calendarBentoCard
+                    todosBentoCard
+                    shelfBentoCard
+                }
+            }
+            .padding(.horizontal, 2)
+            .padding(.vertical, 4)
         }
-        .padding(.vertical, 4)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    @ViewBuilder
-    private var rowsView: some View {
-        let rows: [(DashboardRow.RowData, AnyView)] = [
-            (musicRowData, AnyView(musicControls)),
-            (codingRowData, AnyView(EmptyView())),
-            (shelfRowData, AnyView(EmptyView())),
-            (timerRowData, AnyView(timerProgress)),
-            (todosRowData, AnyView(EmptyView())),
-            (calendarRowData, AnyView(EmptyView()))
-        ]
+    // MARK: - 1. Music / Media Player Card
 
-        ForEach(Array(rows.enumerated()), id: \.offset) { index, row in
-            DashboardRow(data: row.0, controls: row.1) {
-                navigate(row.0.section)
-            }
-            if index < rows.count - 1 {
-                dashboardDivider
+    private var musicBentoCard: some View {
+        DashboardBentoCard(
+            accentColor: Color.musicAccent,
+            isActive: music.isPlaying,
+            action: { navigate(.music) }
+        ) {
+            HStack(spacing: 10) {
+                // Artwork or dynamic icon
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(
+                            music.isPlaying
+                                ? Color.musicAccent.opacity(0.18)
+                                : Color.white.opacity(0.06)
+                        )
+                    if let artwork = music.artwork {
+                        Image(nsImage: artwork)
+                            .resizable()
+                            .scaledToFill()
+                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                    } else {
+                        Image(systemName: music.isPlaying ? "waveform" : "music.note")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(music.isPlaying ? Color.musicAccent : Color.notchMuted)
+                    }
+                }
+                .frame(width: 36, height: 36)
+                .overlay(alignment: .bottomTrailing) {
+                    if music.isPlaying {
+                        Circle()
+                            .fill(Color.musicAccent)
+                            .frame(width: 6, height: 6)
+                            .shadow(color: Color.musicAccent.opacity(0.8), radius: 3)
+                            .offset(x: 1, y: 1)
+                    }
+                }
+
+                // Track title & source
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text("Now Playing")
+                            .font(.system(size: 8.5, weight: .semibold))
+                            .textCase(.uppercase)
+                            .tracking(0.4)
+                            .foregroundStyle(Color.notchMuted)
+                        Spacer(minLength: 0)
+                        Text(music.isPlaying ? music.activeSource.displayName : "Paused")
+                            .font(.system(size: 8, weight: .medium))
+                            .foregroundStyle(music.isPlaying ? Color.musicAccent : Color.white.opacity(0.45))
+                    }
+
+                    Text(music.track?.title ?? "Nothing playing")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.95))
+                        .lineLimit(1)
+
+                    Text(music.track?.artist ?? "Apple Music / Spotify")
+                        .font(.system(size: 9.5, weight: .regular))
+                        .foregroundStyle(Color.white.opacity(0.6))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 2)
+
+                // Inline Play/Pause control
+                if music.track != nil {
+                    Button {
+                        music.togglePlayback()
+                    } label: {
+                        Image(systemName: music.isPlaying ? "pause.fill" : "play.fill")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(Color.white)
+                            .frame(width: 24, height: 24)
+                            .background(
+                                Circle()
+                                    .fill(music.isPlaying ? Color.musicAccent : Color.white.opacity(0.12))
+                            )
+                            .shadow(color: music.isPlaying ? Color.musicAccent.opacity(0.4) : .clear, radius: 4)
+                    }
+                    .buttonStyle(AppleSpringPressStyle())
+                    .help(music.isPlaying ? "Pause" : "Play")
+                    .accessibilityLabel(music.isPlaying ? "Pause music" : "Play music")
+                }
             }
         }
     }
 
-    private var dashboardDivider: some View {
-        Rectangle()
-            .fill(Color.white.opacity(0.06))
-            .frame(height: 0.5)
-            .padding(.leading, 31)
+    // MARK: - 2. Focus / Pomodoro Timer Card
+
+    private var timerBentoCard: some View {
+        DashboardBentoCard(
+            accentColor: timer.currentMode.tint,
+            isActive: timer.isActive,
+            action: { navigate(.timer) }
+        ) {
+            HStack(spacing: 10) {
+                // Circular Progress Ring
+                ZStack {
+                    Circle()
+                        .stroke(Color.white.opacity(0.08), lineWidth: 2.5)
+                    Circle()
+                        .trim(from: 0, to: timer.isActive ? timer.progress : 1.0)
+                        .stroke(
+                            timer.isActive ? timer.currentMode.tint : Color.notchMuted.opacity(0.4),
+                            style: StrokeStyle(lineWidth: 2.5, lineCap: .round)
+                        )
+                        .rotationEffect(.degrees(-90))
+                        .animation(.linear(duration: 0.25), value: timer.progress)
+
+                    Image(systemName: timer.currentMode.icon)
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(timer.isActive ? timer.currentMode.tint : Color.notchMuted)
+                }
+                .frame(width: 32, height: 32)
+
+                // Time remaining & mode
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 4) {
+                        Text(timer.isActive ? timer.currentMode.title.uppercased() : "FOCUS TIMER")
+                            .font(.system(size: 8.5, weight: .semibold))
+                            .tracking(0.4)
+                            .foregroundStyle(timer.isActive ? timer.currentMode.tint : Color.notchMuted)
+                        Spacer(minLength: 0)
+                        Text(timer.isPaused ? "Paused" : (timer.isActive ? "Running" : "25m / 5m"))
+                            .font(.system(size: 8, weight: .medium))
+                            .foregroundStyle(Color.white.opacity(0.45))
+                    }
+
+                    Text(timer.isActive ? TimerService.formatted(timer.remaining) : "Pomodoro")
+                        .font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(timer.isActive ? Color.white : Color.white.opacity(0.85))
+
+                    Text(timer.isActive ? "\(Int(timer.progress * 100))% completed" : "Ready to focus")
+                        .font(.system(size: 9, weight: .regular))
+                        .foregroundStyle(Color.white.opacity(0.55))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 2)
+
+                // Inline quick action button
+                Button {
+                    if timer.isActive {
+                        timer.togglePause()
+                    } else {
+                        model.startPomodoro(
+                            focusMinutes: timer.focusMinutes,
+                            breakMinutes: timer.breakMinutes
+                        )
+                    }
+                } label: {
+                    Image(systemName: timer.isActive ? (timer.isPaused ? "play.fill" : "pause.fill") : "play.fill")
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(timer.isActive ? Color.white : Color.black)
+                        .frame(width: 24, height: 24)
+                        .background(
+                            Circle()
+                                .fill(timer.isActive ? timer.currentMode.tint : Color.notchAccent)
+                        )
+                        .shadow(color: Color.notchAccent.opacity(0.35), radius: 3)
+                }
+                .buttonStyle(AppleSpringPressStyle())
+                .help(timer.isActive ? (timer.isPaused ? "Resume timer" : "Pause timer") : "Start focus session")
+            }
+        }
     }
 
-    // MARK: - Row data
+    // MARK: - 3. Developer / Coding Activity Card
 
-    private var musicRowData: DashboardRow.RowData {
-        DashboardRow.RowData(
-            section: .music,
-            icon: "waveform",
-            title: "Music",
-            value: music.track?.title ?? "Nothing playing",
-            detail: music.isPlaying ? music.activeSource.displayName : "Paused",
-            isActive: music.isPlaying
-        )
+    private var activityBentoCard: some View {
+        let isLive = activity.runningCount > 0
+        return DashboardBentoCard(
+            accentColor: Color.notchAccent,
+            isActive: isLive,
+            action: { navigate(.activity) }
+        ) {
+            HStack(spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(
+                            isLive
+                                ? Color.notchAccent.opacity(0.16)
+                                : Color.white.opacity(0.06)
+                        )
+                    Image(systemName: "chevron.left.forwardslash.chevron.right")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(isLive ? Color.notchAccent : Color.notchMuted)
+                }
+                .frame(width: 26, height: 26)
+
+                VStack(alignment: .leading, spacing: 1.5) {
+                    HStack(spacing: 4) {
+                        Text("Coding")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.white.opacity(0.9))
+                        if isLive {
+                            Circle()
+                                .fill(Color.notchAccent)
+                                .frame(width: 4.5, height: 4.5)
+                                .shadow(color: Color.notchAccent.opacity(0.8), radius: 2.5)
+                        }
+                    }
+
+                    Text(isLive ? "\(activity.runningCount) active · \(activity.primaryActivity.title)" : "No active servers")
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(isLive ? Color.notchAccent : Color.notchMuted)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 7.5, weight: .bold))
+                    .foregroundStyle(Color.white.opacity(0.2))
+            }
+        }
     }
 
-    private var codingRowData: DashboardRow.RowData {
-        DashboardRow.RowData(
-            section: .activity,
-            icon: "chevron.left.forwardslash.chevron.right",
-            title: "Coding",
-            value: activity.runningCount > 0
-                ? "\(activity.runningCount) active"
-                : "No active tasks",
-            detail: activity.runningCount > 0
-                ? activity.primaryActivity.title
-                : "Ready",
-            isActive: activity.runningCount > 0
-        )
-    }
+    // MARK: - 4. Apple Calendar Card
 
-    private var shelfRowData: DashboardRow.RowData {
-        DashboardRow.RowData(
-            section: .shelf,
-            icon: "tray.full.fill",
-            title: "File Shelf",
-            value: shelf.items.isEmpty
-                ? "Shelf is empty"
-                : "\(shelf.items.count) item\(shelf.items.count == 1 ? "" : "s")",
-            detail: "Drop files to keep them close",
-            isActive: !shelf.items.isEmpty
-        )
-    }
-
-    private var timerRowData: DashboardRow.RowData {
-        DashboardRow.RowData(
-            section: .timer,
-            icon: timer.currentMode.icon,
-            title: timer.isActive ? timer.currentMode.title : "Pomodoro",
-            value: timer.isActive
-                ? TimerService.formatted(timer.remaining)
-                : "No active timer",
-            detail: timer.isPaused ? "Paused" : (timer.isActive ? "Running" : "Focus & Break"),
-            isActive: timer.isActive
-        )
-    }
-
-    private var todosRowData: DashboardRow.RowData {
-        DashboardRow.RowData(
-            section: .todo,
-            icon: "checklist",
-            title: "Todos",
-            value: todos.remainingCount > 0
-                ? "\(todos.remainingCount) remaining"
-                : "All clear",
-            detail: todos.items.isEmpty ? "Add your first task" : "View task list",
-            isActive: todos.remainingCount > 0
-        )
-    }
-
-    private var calendarRowData: DashboardRow.RowData {
+    private var calendarBentoCard: some View {
         let nextEvent = calendar.accessState == .authorized ? calendar.nextEvent : nil
-        let value: String
-        let detail: String
+        let isAuthorized = calendar.accessState == .authorized
 
-        if let nextEvent {
-            value = nextEvent.title
-            detail = "\(nextEvent.dayLabel) · \(nextEvent.shortTime)"
-        } else {
-            // No event to surface: report the connection state so the row
-            // guides the user instead of implying the calendar is empty.
-            switch calendar.accessState {
-            case .notDetermined:
-                value = "Not connected"
-                detail = "Tap to allow Calendar access"
-            case .requesting:
-                value = "Connecting…"
-                detail = "Waiting for permission"
-            case .denied, .restricted:
-                value = "Access is off"
-                detail = "Enable it in System Settings"
-            case .authorized:
-                value = "No upcoming events"
-                detail = "Nothing in the next 14 days"
+        return DashboardBentoCard(
+            accentColor: Color(red: 0.22, green: 0.65, blue: 1.0),
+            isActive: nextEvent != nil,
+            action: { navigate(.calendar) }
+        ) {
+            HStack(spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(
+                            nextEvent != nil
+                                ? Color(red: 0.22, green: 0.65, blue: 1.0).opacity(0.16)
+                                : Color.white.opacity(0.06)
+                        )
+                    Image(systemName: "calendar")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(nextEvent != nil ? Color(red: 0.22, green: 0.65, blue: 1.0) : Color.notchMuted)
+                }
+                .frame(width: 26, height: 26)
+
+                VStack(alignment: .leading, spacing: 1.5) {
+                    Text("Calendar")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.9))
+
+                    if let nextEvent {
+                        Text("\(nextEvent.shortTime) · \(nextEvent.title)")
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(Color(red: 0.42, green: 0.78, blue: 1.0))
+                            .lineLimit(1)
+                    } else {
+                        Text(isAuthorized ? "No events today" : "Tap to connect")
+                            .font(.system(size: 9, weight: .regular))
+                            .foregroundStyle(Color.notchMuted)
+                            .lineLimit(1)
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 7.5, weight: .bold))
+                    .foregroundStyle(Color.white.opacity(0.2))
             }
-        }
-
-        return DashboardRow.RowData(
-            section: .calendar,
-            icon: "calendar",
-            title: "Calendar",
-            value: value,
-            detail: detail,
-            isActive: nextEvent != nil
-        )
-    }
-
-    // MARK: - Inline controls
-
-    @ViewBuilder
-    private var musicControls: some View {
-        if music.track != nil {
-            Button {
-                music.togglePlayback()
-            } label: {
-                Image(systemName: music.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.system(size: 8, weight: .bold))
-                    .foregroundStyle(Color.notchAccent)
-                    .frame(width: 18, height: 18)
-                    .background(Circle().fill(Color.notchAccent.opacity(0.14)))
-                    .contentShape(Circle())
-            }
-            .buttonStyle(.plain)
-            .help(music.isPlaying ? "Pause" : "Play")
-            .accessibilityLabel(music.isPlaying ? "Pause music" : "Play music")
         }
     }
 
-    @ViewBuilder
-    private var timerProgress: some View {
-        if timer.isActive {
-            ZStack {
-                Circle()
-                    .stroke(Color.white.opacity(0.12), lineWidth: 1.5)
-                Circle()
-                    .trim(from: 0, to: timer.progress)
-                    .stroke(
-                        timer.currentMode.tint,
-                        style: StrokeStyle(lineWidth: 1.5, lineCap: .round)
-                    )
-                    .rotationEffect(.degrees(-90))
-                    .animation(.linear(duration: 0.25), value: timer.progress)
+    // MARK: - 5. Todos Card
+
+    private var todosBentoCard: some View {
+        let hasRemaining = todos.remainingCount > 0
+        let topTodo = todos.items.first(where: { !$0.isCompleted })
+
+        return DashboardBentoCard(
+            accentColor: Color(red: 0.35, green: 0.85, blue: 0.55),
+            isActive: hasRemaining,
+            action: { navigate(.todo) }
+        ) {
+            HStack(spacing: 8) {
+                // Interactive quick completion if there's a top todo
+                if let topTodo {
+                    Button {
+                        todos.toggle(topTodo)
+                    } label: {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                                .fill(Color.white.opacity(0.06))
+                            Image(systemName: "circle")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(Color.notchAccent)
+                        }
+                        .frame(width: 26, height: 26)
+                    }
+                    .buttonStyle(AppleSpringPressStyle())
+                    .help("Complete task: \(topTodo.title)")
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 7, style: .continuous)
+                            .fill(Color.white.opacity(0.06))
+                        Image(systemName: "checklist")
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(hasRemaining ? Color.notchAccent : Color.notchMuted)
+                    }
+                    .frame(width: 26, height: 26)
+                }
+
+                VStack(alignment: .leading, spacing: 1.5) {
+                    HStack(spacing: 4) {
+                        Text("Todos")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundStyle(Color.white.opacity(0.9))
+                        if hasRemaining {
+                            Text("\(todos.remainingCount)")
+                                .font(.system(size: 8, weight: .bold, design: .rounded))
+                                .foregroundStyle(Color.black)
+                                .padding(.horizontal, 4.5)
+                                .padding(.vertical, 0.5)
+                                .background(Capsule().fill(Color.notchAccent))
+                        }
+                    }
+
+                    Text(topTodo?.title ?? (todos.items.isEmpty ? "All caught up" : "Completed all tasks"))
+                        .font(.system(size: 9, weight: .regular))
+                        .foregroundStyle(hasRemaining ? Color.white.opacity(0.8) : Color.notchMuted)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 7.5, weight: .bold))
+                    .foregroundStyle(Color.white.opacity(0.2))
             }
-            .frame(width: 14, height: 14)
-            .accessibilityHidden(true)
+        }
+    }
+
+    // MARK: - 6. File Shelf Card
+
+    private var shelfBentoCard: some View {
+        let hasFiles = !shelf.items.isEmpty
+
+        return DashboardBentoCard(
+            accentColor: Color(red: 0.65, green: 0.50, blue: 0.98),
+            isActive: hasFiles,
+            action: { navigate(.shelf) }
+        ) {
+            HStack(spacing: 8) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(
+                            hasFiles
+                                ? Color(red: 0.65, green: 0.50, blue: 0.98).opacity(0.16)
+                                : Color.white.opacity(0.06)
+                        )
+                    Image(systemName: "tray.full.fill")
+                        .font(.system(size: 10.5, weight: .semibold))
+                        .foregroundStyle(hasFiles ? Color(red: 0.75, green: 0.60, blue: 1.0) : Color.notchMuted)
+                }
+                .frame(width: 26, height: 26)
+
+                VStack(alignment: .leading, spacing: 1.5) {
+                    Text("File Shelf")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.white.opacity(0.9))
+
+                    Text(hasFiles ? "\(shelf.items.count) item\(shelf.items.count == 1 ? "" : "s") ready" : "Drop files to pin")
+                        .font(.system(size: 9, weight: .regular))
+                        .foregroundStyle(hasFiles ? Color(red: 0.85, green: 0.75, blue: 1.0) : Color.notchMuted)
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 7.5, weight: .bold))
+                    .foregroundStyle(Color.white.opacity(0.2))
+            }
         }
     }
 }
 
-/// One strip of the unified dashboard: icon, title, live value, secondary
-/// detail, optional inline controls, and a hover-revealed navigation chevron.
-private struct DashboardRow: View {
-    struct RowData {
-        let section: NotchSection
-        let icon: String
-        let title: String
-        let value: String
-        let detail: String
-        let isActive: Bool
-    }
+// MARK: - Apple Design Bento Card Container
 
-    let data: RowData
-    let controls: AnyView
+private struct DashboardBentoCard<Content: View>: View {
+    let accentColor: Color
+    let isActive: Bool
     let action: () -> Void
+    let content: Content
+
     @State private var isHovering = false
+
+    init(
+        accentColor: Color = .white,
+        isActive: Bool = false,
+        action: @escaping () -> Void,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.accentColor = accentColor
+        self.isActive = isActive
+        self.action = action
+        self.content = content()
+    }
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 8) {
-                Image(systemName: data.icon)
-                    .font(.system(size: 9.5, weight: .semibold))
-                    .foregroundStyle(data.isActive ? Color.notchAccent : Color.notchMuted)
-                    .frame(width: 19, height: 19)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .fill(
-                                data.isActive
-                                    ? Color.notchAccent.opacity(0.14)
-                                    : Color.white.opacity(isHovering ? 0.09 : 0.05)
+            content
+                .padding(.horizontal, 9)
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(isHovering ? 0.09 : (isActive ? 0.07 : 0.045)),
+                                    Color.white.opacity(isHovering ? 0.05 : (isActive ? 0.04 : 0.025))
+                                ],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
                             )
-                    )
-
-                Text(data.title)
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.9))
-                    .lineLimit(1)
-                    .fixedSize()
-
-                Text(data.value)
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
-                    .foregroundStyle(data.isActive ? Color.notchAccent : .white.opacity(0.72))
-                    .lineLimit(1)
-
-                Text(data.detail)
-                    .font(.system(size: 8.5, weight: .medium))
-                    .foregroundStyle(Color.notchMuted)
-                    .lineLimit(1)
-
-                Spacer(minLength: 6)
-
-                controls
-
-                if data.isActive {
-                    Circle()
-                        .fill(Color.notchAccent)
-                        .frame(width: 4.5, height: 4.5)
-                        .shadow(color: Color.notchAccent.opacity(0.6), radius: 2.5)
-                        .accessibilityHidden(true)
-                }
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 7.5, weight: .bold))
-                    .foregroundStyle(Color.white.opacity(isHovering ? 0.55 : 0.18))
-            }
-            .padding(.horizontal, 7)
-            .frame(maxWidth: .infinity)
-            .frame(minHeight: 20, maxHeight: 30)
-            .background(
-                RoundedRectangle(cornerRadius: 7, style: .continuous)
-                    .fill(Color.white.opacity(isHovering ? 0.05 : 0))
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .strokeBorder(
+                            LinearGradient(
+                                colors: [
+                                    isActive
+                                        ? accentColor.opacity(isHovering ? 0.45 : 0.25)
+                                        : Color.white.opacity(isHovering ? 0.16 : 0.07),
+                                    Color.white.opacity(isHovering ? 0.06 : 0.02)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            ),
+                            lineWidth: 1
+                        )
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .scaleEffect(isHovering ? 1.012 : 1.0)
+                .animation(.spring(response: 0.3, dampingFraction: 0.82), value: isHovering)
+                .animation(.easeOut(duration: 0.18), value: isActive)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(AppleSpringPressStyle())
         .onHover { isHovering = $0 }
-        .animation(.easeOut(duration: 0.14), value: isHovering)
-        .accessibilityLabel("\(data.title): \(data.value), \(data.detail)")
+    }
+}
+
+// MARK: - Apple Fluid Spring Press Button Style
+
+/// Implements Apple WWDC fluid press response: instant feedback on pointer-down
+/// with continuous spring recovery.
+private struct AppleSpringPressStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.96 : 1.0)
+            .opacity(configuration.isPressed ? 0.88 : 1.0)
+            .animation(.spring(response: 0.24, dampingFraction: 0.78), value: configuration.isPressed)
     }
 }

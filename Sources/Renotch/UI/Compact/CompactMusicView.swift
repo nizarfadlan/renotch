@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CompactMusicView: View {
     @ObservedObject var music: MusicService
+    @ObservedObject var timer: TimerService
     let message: String?
     var showsTrackInfo = false
 
@@ -33,10 +34,51 @@ struct CompactMusicView: View {
                 .transition(.opacity)
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 6)
 
-            AudioWaveform(isPlaying: music.isPlaying, barCount: 6)
-                .frame(width: 24, height: 11)
+            if timer.isActive {
+                // Apple Dynamic Island Live Timer Pill
+                HStack(spacing: 4.5) {
+                    ZStack {
+                        Circle()
+                            .stroke(Color.white.opacity(0.14), lineWidth: 1.5)
+                        Circle()
+                            .trim(from: 0, to: timer.progress)
+                            .stroke(
+                                timer.currentMode.tint,
+                                style: StrokeStyle(lineWidth: 1.5, lineCap: .round)
+                            )
+                            .rotationEffect(.degrees(-90))
+                            .animation(.linear(duration: 0.25), value: timer.progress)
+                        Image(systemName: timer.isPaused ? "pause.fill" : timer.currentMode.icon)
+                            .font(.system(size: 5.5, weight: .bold))
+                            .foregroundStyle(timer.currentMode.tint)
+                    }
+                    .frame(width: 12, height: 12)
+
+                    Text(TimerService.formatted(timer.remaining))
+                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                        .monospacedDigit()
+                        .foregroundStyle(timer.currentMode.tint)
+                        .fixedSize()
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 3)
+                .background(
+                    Capsule()
+                        .fill(timer.currentMode.tint.opacity(0.12))
+                )
+                .overlay(
+                    Capsule()
+                        .stroke(timer.currentMode.tint.opacity(0.22), lineWidth: 0.5)
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                .animation(.snappy(duration: 0.25), value: timer.isActive)
+            } else {
+                AudioWaveform(isPlaying: music.isPlaying, barCount: 6)
+                    .frame(width: 24, height: 11)
+                    .transition(.opacity)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .animation(.easeOut(duration: 0.18), value: showsTrackInfo)

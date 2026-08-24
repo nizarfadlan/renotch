@@ -19,6 +19,7 @@ final class NotchWindowController: NSWindowController {
             rootView: NotchView()
                 .environmentObject(model)
         )
+        hostingView.sizingOptions = []
         hostingView.onFileDragTargetChanged = { [weak model] isTargeted in
             model?.fileDropTargetChanged(isTargeted)
         }
@@ -70,6 +71,21 @@ final class NotchWindowController: NSWindowController {
         guard let panel = window as? NotchPanel,
               let screen = screenManager.screen(for: model.settings.targetDisplayID) else { return }
 
+        if model.mode == .focusTakeover {
+            panel.level = .screenSaver
+            let behavior: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
+            panel.collectionBehavior = behavior
+            let frame = screen.frame
+
+            panel.orderFrontRegardless()
+            panel.makeKey()
+
+            if panel.frame != frame {
+                panel.setFrame(frame, display: true)
+            }
+            return
+        }
+
         panel.level = model.settings.alwaysOnTop ? .statusBar : .floating
         var behavior: NSWindow.CollectionBehavior = [.canJoinAllSpaces, .stationary]
         if model.settings.showOnFullscreen { behavior.insert(.fullScreenAuxiliary) }
@@ -88,6 +104,12 @@ final class NotchWindowController: NSWindowController {
         // active Finder drag can emit a false draggingExited event.
         guard panel.frame != frame else { return }
 
+        // If transitioning from a fullscreen/takeover frame, snap directly without shrink animation
+        if panel.frame.width > size.width * 1.2 || panel.frame.height > size.height * 1.2 {
+            panel.setFrame(frame, display: true)
+            return
+        }
+
         guard animated,
               panel.isVisible,
               !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
@@ -96,14 +118,14 @@ final class NotchWindowController: NSWindowController {
         }
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.28
-            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            context.duration = 0.32
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.16, 1, 0.3, 1)
             panel.animator().setFrame(frame, display: true)
         }
     }
 
     private func handleGlobalClick(_ event: NSEvent) {
-        guard let panel = window, panel.isVisible, model.isPinned else { return }
+        guard let panel = window, panel.isVisible, model.isPinned, model.mode != .focusTakeover else { return }
         let notchSize = model.currentSize
         let visibleNotchFrame = NSRect(
             x: panel.frame.midX - notchSize.width / 2,

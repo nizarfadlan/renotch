@@ -5,6 +5,7 @@ enum NotchMode: String, Codable {
     case expanded
     case fileDrop
     case success
+    case focusTakeover
 }
 
 enum NotchAppearance: String, Codable, CaseIterable, Identifiable {
@@ -27,6 +28,7 @@ enum CompactNotchContent: String, Codable, CaseIterable, Identifiable {
     case timer
     case calendar
     case shelf
+    case todo
 
     var id: String { rawValue }
 
@@ -37,6 +39,7 @@ enum CompactNotchContent: String, Codable, CaseIterable, Identifiable {
         case .timer: return "Timer"
         case .calendar: return "Calendar"
         case .shelf: return "File Shelf"
+        case .todo: return "To-Do List"
         }
     }
 
@@ -47,6 +50,7 @@ enum CompactNotchContent: String, Codable, CaseIterable, Identifiable {
         case .timer: return .timer
         case .calendar: return .calendar
         case .shelf: return .shelf
+        case .todo: return .todo
         }
     }
 }
@@ -58,7 +62,6 @@ enum NotchSection: String, CaseIterable, Identifiable {
     case music
     case timer
     case calendar
-    case clipboard
     case shelf
     case todo
 
@@ -98,7 +101,7 @@ struct NotchSettings: Codable, Equatable {
     static let compactContentVerticalPaddingRange = 0.0...20.0
     static let expandedContentPaddingRange = 0.0...80.0
     static let expandedWidthRange = notchWidthRange
-    static let expandedHeightRange = 180.0...260.0
+    static let expandedHeightRange = 180.0...800.0
     static let codingExpandedWidth = 500.0
     static let codingExpandedHeight = 240.0
     /// Narrowest width that fits the full expanded header (Dashboard button,
@@ -138,12 +141,24 @@ struct NotchSettings: Codable, Equatable {
     var avoidHardwareNotch: Bool? = false
     /// Optional so settings written before configurable navigation styles still decode.
     var headerNavigationStyle: HeaderNavigationStyle? = .standard
-    var clipboardHistoryEnabled = true
     var timerNotificationsEnabled = true
-    var compactWidth = 335.0
+    var focusBlockerEnabled: Bool? = true
+    var focusBlockerStrictPomodoroOnly: Bool? = false
+    var focusBlockerCustomRules: [String]? = [
+        "threads.net",
+        "instagram.com",
+        "twitter.com",
+        "x.com",
+        "youtube.com",
+        "tiktok.com",
+        "reddit.com",
+        "facebook.com",
+        "netflix.com"
+    ]
+    var compactWidth = 548.0
     var compactHeight = 30.0
-    var expandedWidth = 460.0
-    var expandedHeight = 220.0
+    var expandedWidth = 548.0
+    var expandedHeight = 209.0
     var collapseDelay = 0.45
     var verticalOffset = 0.0
 
@@ -214,6 +229,28 @@ struct NotchSettings: Codable, Equatable {
         (expandedContentBottomPadding ?? 14).clamped(to: Self.expandedContentPaddingRange)
     }
 
+    var resolvedFocusBlockerEnabled: Bool {
+        focusBlockerEnabled ?? true
+    }
+
+    var resolvedFocusBlockerStrictPomodoroOnly: Bool {
+        focusBlockerStrictPomodoroOnly ?? false
+    }
+
+    var resolvedFocusBlockerCustomRules: [String] {
+        focusBlockerCustomRules ?? [
+            "threads.net",
+            "instagram.com",
+            "twitter.com",
+            "x.com",
+            "youtube.com",
+            "tiktok.com",
+            "reddit.com",
+            "facebook.com",
+            "netflix.com"
+        ]
+    }
+
     mutating func clampValues() {
         compactWidth = compactWidth.clamped(to: Self.compactWidthRange)
         compactHeight = compactHeight.clamped(to: Self.compactHeightRange)
@@ -235,6 +272,9 @@ struct NotchSettings: Codable, Equatable {
         expandedContentBottomPadding = resolvedExpandedContentBottomPadding
         avoidHardwareNotch = resolvedAvoidHardwareNotch
         headerNavigationStyle = resolvedHeaderNavigationStyle
+        focusBlockerEnabled = resolvedFocusBlockerEnabled
+        focusBlockerStrictPomodoroOnly = resolvedFocusBlockerStrictPomodoroOnly
+        focusBlockerCustomRules = resolvedFocusBlockerCustomRules
     }
 }
 
@@ -312,18 +352,6 @@ struct GitActivitySnapshot: Equatable {
     let behind: Int
     let root: URL
     let remoteURL: URL?
-}
-
-struct ClipboardItem: Identifiable, Codable, Equatable {
-    let id: UUID
-    let content: String
-    let createdAt: Date
-
-    init(id: UUID = UUID(), content: String, createdAt: Date = Date()) {
-        self.id = id
-        self.content = content
-        self.createdAt = createdAt
-    }
 }
 
 struct TodoItem: Identifiable, Codable, Equatable {
