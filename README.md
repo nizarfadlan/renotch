@@ -26,7 +26,10 @@ Turn your Mac's notch into a lightweight, native developer command center.
 
 ![Media Control](public/Music-Demo.gif)
 
-- **Productivity**: Focus timer, clipboard history, and file drop shelf.
+- **Pomodoro + Website Blocker**: Stop doomscrolling mid-task. Renotch now lets you block specific websites during Pomodoro sessions so you actually get things done.
+
+![Pomodoro + Website Blocker](public/Pomodoro.gif)
+
 - **Browser Bridge**: YouTube playback and Chromium download monitor.
 - **Native & Private**: Swift/SwiftUI, fluid animations, 100% local, zero telemetry.
 

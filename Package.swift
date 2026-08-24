@@ -16,8 +16,7 @@ let package = Package(
             name: "Renotch",
             path: "Sources/Renotch",
             resources: [
-                .copy("Resources/TrayIconTemplate.png"),
-                .copy("Resources/blocked.html")
+                .copy("Resources/TrayIconTemplate.png")
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v5)
