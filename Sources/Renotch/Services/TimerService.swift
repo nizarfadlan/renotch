@@ -1,6 +1,7 @@
 import Foundation
 import UserNotifications
 
+@MainActor
 final class TimerService: ObservableObject {
     @Published private(set) var storedTimer: StoredTimer?
     @Published private(set) var remaining: TimeInterval = 0
@@ -188,7 +189,7 @@ final class TimerService: ObservableObject {
         }
     }
 
-    static func formatted(_ interval: TimeInterval) -> String {
+    nonisolated static func formatted(_ interval: TimeInterval) -> String {
         let total = max(0, Int(ceil(interval)))
         let hours = total / 3600
         let minutes = (total % 3600) / 60
@@ -201,7 +202,7 @@ final class TimerService: ObservableObject {
 
     private func startTicker() {
         ticker = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            self?.tick()
+            Task { @MainActor in self?.tick() }
         }
         ticker?.tolerance = 0.1
     }

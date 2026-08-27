@@ -1,7 +1,7 @@
 import AppKit
 import Foundation
 
-enum MusicSource: String, CaseIterable, Equatable {
+enum MusicSource: String, CaseIterable, Equatable, Sendable {
     case appleMusic
     case spotify
 
@@ -31,7 +31,7 @@ enum MusicSource: String, CaseIterable, Equatable {
     }
 }
 
-struct MusicTrack: Equatable {
+struct MusicTrack: Equatable, Sendable {
     let id: String
     let source: MusicSource
     let title: String
@@ -44,14 +44,14 @@ struct MusicTrack: Equatable {
     }
 }
 
-enum MusicPlaybackState: String {
+enum MusicPlaybackState: String, Sendable {
     case notRunning
     case stopped
     case paused
     case playing
 }
 
-enum MusicRepeatMode: String, Equatable {
+enum MusicRepeatMode: String, Equatable, Sendable {
     case off
     case all
     case one
@@ -68,7 +68,7 @@ enum MusicRepeatMode: String, Equatable {
     }
 }
 
-struct MusicSnapshot: Equatable {
+struct MusicSnapshot: Equatable, Sendable {
     let source: MusicSource
     let playbackState: MusicPlaybackState
     let track: MusicTrack?
@@ -79,6 +79,7 @@ struct MusicSnapshot: Equatable {
     let repeatMode: MusicRepeatMode
 }
 
+@MainActor
 final class MusicService: ObservableObject {
     @Published private(set) var track: MusicTrack?
     @Published private(set) var playbackState: MusicPlaybackState = .notRunning
@@ -92,13 +93,12 @@ final class MusicService: ObservableObject {
     @Published private(set) var repeatMode: MusicRepeatMode = .off
 
     private static let artworkCache = NSCache<NSString, NSImage>()
-    private let scriptQueue = DispatchQueue(label: "com.vincentyosi.renotch.music")
     private var pollingTimer: Timer?
     private var refreshInFlight = false
     private var snapshots: [MusicSource: MusicSnapshot] = [:]
     private var activationDates: [MusicSource: Date] = [:]
     private var automationDeniedSources: Set<MusicSource> = []
-    private var artworkDataTask: URLSessionDataTask?
+    private var artworkTask: Task<Void, Never>?
     private var artworkRequestID = UUID()
     private var loadingTrackID: String?
 
@@ -110,7 +110,7 @@ final class MusicService: ObservableObject {
 
     deinit {
         pollingTimer?.invalidate()
-        artworkDataTask?.cancel()
+        artworkTask?.cancel()
         DistributedNotificationCenter.default().removeObserver(self)
     }
 
@@ -120,13 +120,13 @@ final class MusicService: ObservableObject {
             forName: NSNotification.Name("com.apple.Music.playerInfo"),
             object: nil, queue: .main
         ) { [weak self] _ in
-            self?.refresh()
+            Task { @MainActor in self?.refresh() }
         }
         center.addObserver(
             forName: NSNotification.Name("com.spotify.client.PlaybackStateChanged"),
             object: nil, queue: .main
         ) { [weak self] _ in
-            self?.refresh()
+            Task { @MainActor in self?.refresh() }
         }
     }
 
@@ -134,7 +134,7 @@ final class MusicService: ObservableObject {
         if isPlaying {
             guard pollingTimer == nil else { return }
             pollingTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
-                self?.refresh()
+                Task { @MainActor in self?.refresh() }
             }
             pollingTimer?.tolerance = 0.25
         } else {
@@ -234,27 +234,31 @@ final class MusicService: ObservableObject {
             }
         )
 
-        scriptQueue.async { [weak self] in
-            var results: [MusicSource: Result<String, AppleScriptFailure>] = [:]
-            for source in MusicSource.allCases {
-                results[source] = runningSources.contains(source)
-                    ? Self.execute(Self.metadataScript(for: source))
-                    : .success(MusicPlaybackState.notRunning.rawValue)
-            }
-            DispatchQueue.main.async {
-                guard let self else { return }
-                self.refreshInFlight = false
-                self.apply(results)
-            }
+        Task {
+            let results = await Self.fetchMetadata(runningSources: runningSources)
+            self.refreshInFlight = false
+            self.apply(results)
         }
     }
 
-    static func formattedTime(_ interval: TimeInterval) -> String {
+    nonisolated private static func fetchMetadata(
+        runningSources: Set<MusicSource>
+    ) async -> [MusicSource: Result<String, AppleScriptFailure>] {
+        var results: [MusicSource: Result<String, AppleScriptFailure>] = [:]
+        for source in MusicSource.allCases {
+            results[source] = runningSources.contains(source)
+                ? execute(metadataScript(for: source))
+                : .success(MusicPlaybackState.notRunning.rawValue)
+        }
+        return results
+    }
+
+    nonisolated static func formattedTime(_ interval: TimeInterval) -> String {
         let total = max(0, Int(interval.rounded(.down)))
         return String(format: "%d:%02d", total / 60, total % 60)
     }
 
-    static func parseMetadata(_ output: String, source: MusicSource) -> MusicSnapshot? {
+    nonisolated static func parseMetadata(_ output: String, source: MusicSource) -> MusicSnapshot? {
         if let state = MusicPlaybackState(rawValue: output) {
             return MusicSnapshot(
                 source: source,
@@ -303,16 +307,16 @@ final class MusicService: ObservableObject {
 
     /// AppleScript formats real numbers with the user's locale. Music apps can
     /// therefore return `36,584` on systems that use a decimal comma.
-    static func parseAppleScriptNumber(_ value: String) -> Double? {
+    nonisolated static func parseAppleScriptNumber(_ value: String) -> Double? {
         if let number = Double(value) { return number }
         return Double(value.replacingOccurrences(of: ",", with: "."))
     }
 
-    static func parseAppleScriptBoolean(_ value: String) -> Bool {
+    nonisolated static func parseAppleScriptBoolean(_ value: String) -> Bool {
         ["true", "yes", "1"].contains(value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
     }
 
-    static func parseRepeatMode(_ value: String) -> MusicRepeatMode {
+    nonisolated static func parseRepeatMode(_ value: String) -> MusicRepeatMode {
         switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "one": return .one
         case "all", "true", "yes", "1": return .all
@@ -323,19 +327,20 @@ final class MusicService: ObservableObject {
     private func runCommand(_ command: String) {
         let source = activeSource
         let script = "tell application \"\(source.applicationName)\" to \(command)"
-        scriptQueue.async { [weak self] in
-            let result = Self.execute(script)
-            DispatchQueue.main.async {
-                guard let self else { return }
-                if case let .failure(error) = result {
-                    if error.code == -1743 {
-                        self.automationDeniedSources.insert(source)
-                        self.automationDenied = source == self.activeSource
-                    }
+        Task {
+            let result = await Self.executeAsync(script)
+            if case let .failure(error) = result {
+                if error.code == -1743 {
+                    self.automationDeniedSources.insert(source)
+                    self.automationDenied = source == self.activeSource
                 }
-                self.refresh()
             }
+            self.refresh()
         }
+    }
+
+    nonisolated private static func executeAsync(_ script: String) async -> Result<String, AppleScriptFailure> {
+        execute(script)
     }
 
     private func apply(_ results: [MusicSource: Result<String, AppleScriptFailure>]) {
@@ -404,8 +409,8 @@ final class MusicService: ObservableObject {
 
         let trackChanged = previousTrackID != track?.id
         if trackChanged {
-            artworkDataTask?.cancel()
-            artworkDataTask = nil
+            artworkTask?.cancel()
+            artworkTask = nil
             artworkRequestID = UUID()
             loadingTrackID = nil
 
@@ -460,16 +465,41 @@ final class MusicService: ObservableObject {
 
         loadingTrackID = track.id
         let requestID = artworkRequestID
+        artworkTask?.cancel()
+        artworkTask = Task {
+            let loadedImage: NSImage?
+            switch track.source {
+            case .appleMusic:
+                loadedImage = await Self.fetchAppleMusicArtwork()
+            case .spotify:
+                loadedImage = await Self.fetchRemoteArtwork(url: remoteURL)
+            }
 
-        switch track.source {
-        case .appleMusic:
-            loadAppleMusicArtwork(for: track, requestID: requestID)
-        case .spotify:
-            loadRemoteArtwork(from: remoteURL, for: track, requestID: requestID)
+            guard !Task.isCancelled else { return }
+
+            if let loadedImage {
+                Self.artworkCache.setObject(loadedImage, forKey: track.cacheKey as NSString)
+                if self.track?.id == track.id && self.artworkRequestID == requestID {
+                    self.artwork = loadedImage
+                    self.loadingTrackID = nil
+                }
+            } else {
+                let fallback = await Self.searchOnlineArtwork(for: track)
+                guard !Task.isCancelled else { return }
+                if let fallback {
+                    Self.artworkCache.setObject(fallback, forKey: track.cacheKey as NSString)
+                    if self.track?.id == track.id && self.artworkRequestID == requestID {
+                        self.artwork = fallback
+                        self.loadingTrackID = nil
+                    }
+                } else if self.track?.id == track.id && self.artworkRequestID == requestID {
+                    self.loadingTrackID = nil
+                }
+            }
         }
     }
 
-    private func loadAppleMusicArtwork(for track: MusicTrack, requestID: UUID) {
+    nonisolated private static func fetchAppleMusicArtwork() async -> NSImage? {
         let script = """
         tell application "Music"
             try
@@ -479,115 +509,54 @@ final class MusicService: ObservableObject {
             end try
         end tell
         """
+        guard let scriptObject = NSAppleScript(source: script) else { return nil }
+        var error: NSDictionary?
+        let descriptor = scriptObject.executeAndReturnError(&error)
+        guard descriptor.data.count > 0 else { return nil }
+        return NSImage(data: descriptor.data)
+    }
 
-        scriptQueue.async { [weak self] in
-            guard let scriptObject = NSAppleScript(source: script) else {
-                self?.fallbackToOnlineSearch(for: track, requestID: requestID)
-                return
-            }
-            var error: NSDictionary?
-            let descriptor = scriptObject.executeAndReturnError(&error)
-            let image = descriptor.data.isEmpty ? nil : NSImage(data: descriptor.data)
-
-            if let image {
-                Self.artworkCache.setObject(image, forKey: track.cacheKey as NSString)
-                DispatchQueue.main.async {
-                    guard let self, self.track?.id == track.id, self.artworkRequestID == requestID else { return }
-                    self.artwork = image
-                    self.loadingTrackID = nil
-                }
-            } else {
-                self?.fallbackToOnlineSearch(for: track, requestID: requestID)
-            }
+    nonisolated private static func fetchRemoteArtwork(url: URL?) async -> NSImage? {
+        guard let url else { return nil }
+        do {
+            let (data, response) = try await URLSession.shared.data(from: url)
+            guard (response as? HTTPURLResponse)?.statusCode == 200,
+                  data.count <= 5_000_000 else { return nil }
+            return NSImage(data: data)
+        } catch {
+            return nil
         }
     }
 
-    private func loadRemoteArtwork(from url: URL?, for track: MusicTrack, requestID: UUID) {
-        guard let url else {
-            fallbackToOnlineSearch(for: track, requestID: requestID)
-            return
-        }
-        let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, _ in
-            if let data,
-               data.count <= 5_000_000,
-               (response as? HTTPURLResponse)?.statusCode == 200,
-               let image = NSImage(data: data) {
-                Self.artworkCache.setObject(image, forKey: track.cacheKey as NSString)
-                DispatchQueue.main.async {
-                    guard let self, self.track?.id == track.id, self.artworkRequestID == requestID else { return }
-                    self.artwork = image
-                    self.loadingTrackID = nil
-                }
-            } else {
-                self?.fallbackToOnlineSearch(for: track, requestID: requestID)
-            }
-        }
-        artworkDataTask = task
-        task.resume()
-    }
-
-    private func fallbackToOnlineSearch(for track: MusicTrack, requestID: UUID) {
-        guard !track.title.isEmpty, track.title != "Unknown title" else {
-            DispatchQueue.main.async { [weak self] in
-                self?.loadingTrackID = nil
-            }
-            return
-        }
-
+    nonisolated private static func searchOnlineArtwork(for track: MusicTrack) async -> NSImage? {
+        guard !track.title.isEmpty, track.title != "Unknown title" else { return nil }
         var query = track.title
         if !track.artist.isEmpty && track.artist != "Unknown artist" {
             query += " \(track.artist)"
         }
-
         guard let encoded = query.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed),
               let searchURL = URL(string: "https://itunes.apple.com/search?term=\(encoded)&entity=song&limit=1") else {
-            DispatchQueue.main.async { [weak self] in
-                self?.loadingTrackID = nil
-            }
-            return
+            return nil
         }
-
-        let task = URLSession.shared.dataTask(with: searchURL) { [weak self] data, response, _ in
-            guard let data,
-                  (response as? HTTPURLResponse)?.statusCode == 200,
+        do {
+            let (data, response) = try await URLSession.shared.data(from: searchURL)
+            guard (response as? HTTPURLResponse)?.statusCode == 200,
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let results = json["results"] as? [[String: Any]],
                   let first = results.first,
                   let artworkUrlString = (first["artworkUrl100"] as? String)?
                     .replacingOccurrences(of: "100x100bb", with: "600x600bb"),
-                  let imageURL = URL(string: artworkUrlString) else {
-                DispatchQueue.main.async {
-                    self?.loadingTrackID = nil
-                }
-                return
-            }
-
-            let downloadTask = URLSession.shared.dataTask(with: imageURL) { [weak self] imgData, imgResponse, _ in
-                guard let imgData,
-                      imgData.count <= 5_000_000,
-                      (imgResponse as? HTTPURLResponse)?.statusCode == 200,
-                      let image = NSImage(data: imgData) else {
-                    DispatchQueue.main.async {
-                        self?.loadingTrackID = nil
-                    }
-                    return
-                }
-
-                Self.artworkCache.setObject(image, forKey: track.cacheKey as NSString)
-                DispatchQueue.main.async {
-                    guard let self, self.track?.id == track.id, self.artworkRequestID == requestID else { return }
-                    self.artwork = image
-                    self.loadingTrackID = nil
-                }
-            }
-            self?.artworkDataTask = downloadTask
-            downloadTask.resume()
+                  let imageURL = URL(string: artworkUrlString) else { return nil }
+            let (imgData, imgResponse) = try await URLSession.shared.data(from: imageURL)
+            guard (imgResponse as? HTTPURLResponse)?.statusCode == 200,
+                  imgData.count <= 5_000_000 else { return nil }
+            return NSImage(data: imgData)
+        } catch {
+            return nil
         }
-        artworkDataTask = task
-        task.resume()
     }
 
-    private static func execute(_ source: String) -> Result<String, AppleScriptFailure> {
+    nonisolated private static func execute(_ source: String) -> Result<String, AppleScriptFailure> {
         guard let script = NSAppleScript(source: source) else {
             return .failure(AppleScriptFailure(code: -1, message: "AppleScript could not be created."))
         }
@@ -604,7 +573,7 @@ final class MusicService: ObservableObject {
         return .success(descriptor.stringValue ?? "")
     }
 
-    private static func metadataScript(for source: MusicSource) -> String {
+    nonisolated private static func metadataScript(for source: MusicSource) -> String {
         switch source {
         case .appleMusic:
             return appleMusicMetadataScript
@@ -613,7 +582,7 @@ final class MusicService: ObservableObject {
         }
     }
 
-    private static let appleMusicMetadataScript = """
+    nonisolated private static let appleMusicMetadataScript = """
     tell application "Music"
         set playbackState to (player state as text)
         if playbackState is "stopped" then return "stopped"
@@ -660,7 +629,7 @@ final class MusicService: ObservableObject {
     end tell
     """
 
-    private static let spotifyMetadataScript = """
+    nonisolated private static let spotifyMetadataScript = """
     tell application "Spotify"
         set playbackState to (player state as text)
         if playbackState is "stopped" then return "stopped"
@@ -713,7 +682,7 @@ final class MusicService: ObservableObject {
     """
 }
 
-private struct AppleScriptFailure: Error {
+private struct AppleScriptFailure: Error, Equatable, Sendable {
     let code: Int
     let message: String
 }

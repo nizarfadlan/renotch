@@ -1,6 +1,6 @@
 import Foundation
 
-enum NotchMode: String, Codable {
+enum NotchMode: String, Codable, Sendable {
     case compact
     case expanded
     case fileDrop
@@ -8,7 +8,7 @@ enum NotchMode: String, Codable {
     case focusTakeover
 }
 
-enum NotchAppearance: String, Codable, CaseIterable, Identifiable {
+enum NotchAppearance: String, Codable, CaseIterable, Identifiable, Sendable {
     case black
     case liquidGlass
 
@@ -22,7 +22,7 @@ enum NotchAppearance: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-enum CompactNotchContent: String, Codable, CaseIterable, Identifiable {
+enum CompactNotchContent: String, Codable, CaseIterable, Identifiable, Sendable {
     case music
     case servers
     case timer
@@ -55,7 +55,7 @@ enum CompactNotchContent: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-enum NotchSection: String, CaseIterable, Identifiable {
+enum NotchSection: String, CaseIterable, Identifiable, Sendable {
     case dashboard
     case activity
     case welcome
@@ -68,7 +68,7 @@ enum NotchSection: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-enum HeaderNavigationStyle: String, Codable, CaseIterable, Identifiable {
+enum HeaderNavigationStyle: String, Codable, CaseIterable, Identifiable, Sendable {
     case standard = "topBar"
     case belowNotch = "belowNotch"
     case bottomDock = "bottomDock"
@@ -92,7 +92,7 @@ enum HeaderNavigationStyle: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-struct NotchSettings: Codable, Equatable {
+struct NotchSettings: Codable, Equatable, Sendable {
     static let notchWidthRange = 180.0...800.0
     static let compactWidthRange = notchWidthRange
     static let compactHeightRange = 28.0...300.0
@@ -278,7 +278,7 @@ struct NotchSettings: Codable, Equatable {
     }
 }
 
-enum DeveloperActivityKind: String, CaseIterable, Identifiable, Codable {
+enum DeveloperActivityKind: String, CaseIterable, Identifiable, Codable, Sendable {
     case localhost
     case build
     case docker
@@ -289,14 +289,14 @@ enum DeveloperActivityKind: String, CaseIterable, Identifiable, Codable {
     var id: String { rawValue }
 }
 
-enum DeveloperActivityState: String, Codable {
+enum DeveloperActivityState: String, Codable, Sendable {
     case running
     case success
     case failed
     case idle
 }
 
-struct DeveloperActivity: Identifiable, Equatable {
+struct DeveloperActivity: Identifiable, Equatable, Sendable {
     let id: String
     let kind: DeveloperActivityKind
     let title: String
@@ -336,14 +336,14 @@ struct DeveloperActivity: Identifiable, Equatable {
     }
 }
 
-struct DockerContainer: Identifiable, Equatable {
+struct DockerContainer: Identifiable, Equatable, Sendable {
     let id: String
     let name: String
     let status: String
     let isRunning: Bool
 }
 
-struct GitActivitySnapshot: Equatable {
+struct GitActivitySnapshot: Equatable, Sendable {
     let repositoryName: String
     let branch: String
     let changedFiles: Int
@@ -354,7 +354,7 @@ struct GitActivitySnapshot: Equatable {
     let remoteURL: URL?
 }
 
-struct TodoItem: Identifiable, Codable, Equatable {
+struct TodoItem: Identifiable, Codable, Equatable, Sendable {
     let id: UUID
     let title: String
     let createdAt: Date
@@ -373,7 +373,7 @@ struct TodoItem: Identifiable, Codable, Equatable {
     }
 }
 
-struct ShelfItem: Identifiable, Hashable {
+struct ShelfItem: Identifiable, Hashable, Sendable {
     let id: UUID
     let url: URL
     let addedAt: Date
@@ -402,7 +402,7 @@ struct ShelfItem: Identifiable, Hashable {
     }
 }
 
-enum PomodoroMode: String, Codable, CaseIterable, Identifiable {
+enum PomodoroMode: String, Codable, CaseIterable, Identifiable, Sendable {
     case focus
     case breakTime
 
@@ -437,7 +437,7 @@ enum PomodoroMode: String, Codable, CaseIterable, Identifiable {
     }
 }
 
-struct StoredTimer: Codable, Equatable {
+struct StoredTimer: Codable, Equatable, Sendable {
     var duration: TimeInterval
     var endDate: Date
     var remainingWhenPaused: TimeInterval?

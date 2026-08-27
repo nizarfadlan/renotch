@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 
+@MainActor
 final class TodoStore: ObservableObject {
     @Published private(set) var items: [TodoItem] {
         didSet { save() }

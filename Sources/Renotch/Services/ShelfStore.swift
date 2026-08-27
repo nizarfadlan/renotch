@@ -1,13 +1,14 @@
 import Combine
 import Foundation
 
-struct ShelfAddResult: Equatable {
+struct ShelfAddResult: Equatable, Sendable {
     let addedCount: Int
     let duplicateCount: Int
     let invalidCount: Int
     let capacityRejectedCount: Int
 }
 
+@MainActor
 final class ShelfStore: ObservableObject {
     @Published private(set) var items: [ShelfItem] = []
 

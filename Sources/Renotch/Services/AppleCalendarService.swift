@@ -2,7 +2,7 @@ import AppKit
 import EventKit
 import Foundation
 
-enum CalendarAccessState: Equatable {
+enum CalendarAccessState: Equatable, Sendable {
     case notDetermined
     case requesting
     case authorized
@@ -10,7 +10,7 @@ enum CalendarAccessState: Equatable {
     case restricted
 }
 
-struct CalendarEventItem: Identifiable, Equatable {
+struct CalendarEventItem: Identifiable, Equatable, Sendable {
     let id: String
     let title: String
     let startDate: Date

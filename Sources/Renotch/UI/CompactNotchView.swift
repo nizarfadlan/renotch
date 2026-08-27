@@ -12,6 +12,8 @@ struct CompactNotchView: View {
     var body: some View {
         Group {
             switch livePresentation {
+            case .faceID(let auth):
+                CompactFaceIDView(auth: auth)
             case .download:
                 if let download = browser.activeDownload {
                     CompactBrowserDownloadView(download: download)
@@ -50,6 +52,7 @@ struct CompactNotchView: View {
 
     private var livePresentation: AdaptiveCompactPresentation {
         AdaptiveCompactArbitrator.resolve(
+            authGlance: model.authGlance,
             downloadAvailable: browser.activeDownload != nil,
             codingGlanceAvailable: activity.glance != nil,
             mediaSource: model.activeMediaSource,
@@ -83,6 +86,8 @@ struct CompactNotchView: View {
 
     private var presentationID: String {
         switch livePresentation {
+        case .faceID(let auth):
+            return "faceid-\(auth.id.uuidString)"
         case .download:
             return "download-\(browser.activeDownload?.id ?? 0)"
         case .codingGlance:

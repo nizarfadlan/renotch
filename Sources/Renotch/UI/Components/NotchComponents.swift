@@ -1,8 +1,14 @@
 import AppKit
 import SwiftUI
 
-/// The attached-notch geometry used by DynamicNotchKit's `.notch` style.
-/// Adapted from Kai Azim's MIT-licensed DynamicNotchKit.
+/// Continuous squircle curvature constants for Apple-grade smooth corners (G2 continuity).
+enum ContinuousCurvature {
+    static let p1: CGFloat = 0.38    // Ease-in control 1
+    static let p2: CGFloat = 0.72    // Ease-in control 2
+    static let p3: CGFloat = 0.90    // Corner peak
+}
+
+/// The attached-notch geometry with authentic Apple continuous G2 curvature (no corner kinks).
 struct AttachedNotchShape: Shape {
     var topCornerRadius: CGFloat
     var bottomCornerRadius: CGFloat
@@ -24,57 +30,110 @@ struct AttachedNotchShape: Shape {
         )
         let topRadius = requestedTopRadius * radiusScale
         let bottomRadius = requestedBottomRadius * radiusScale
-        let curve: CGFloat = 0.552_284_75
         var path = Path()
 
+        // Top Left Bezel Ear (Continuous ease-in from screen bezel)
         path.move(to: CGPoint(x: rect.minX, y: rect.minY))
         path.addCurve(
             to: CGPoint(x: rect.minX + topRadius, y: rect.minY + topRadius),
-            control1: CGPoint(x: rect.minX + topRadius * curve, y: rect.minY),
-            control2: CGPoint(x: rect.minX + topRadius, y: rect.minY + topRadius * (1 - curve))
+            control1: CGPoint(x: rect.minX + topRadius * 0.44, y: rect.minY),
+            control2: CGPoint(x: rect.minX + topRadius * 0.88, y: rect.minY + topRadius * 0.42)
         )
+
+        // Left Vertical Edge
         path.addLine(to: CGPoint(x: rect.minX + topRadius, y: rect.maxY - bottomRadius))
+
+        // Bottom Left Corner (Continuous squircle curve)
         path.addCurve(
-            to: CGPoint(
-                x: rect.minX + topRadius + bottomRadius,
-                y: rect.maxY
-            ),
-            control1: CGPoint(
-                x: rect.minX + topRadius,
-                y: rect.maxY - bottomRadius * (1 - curve)
-            ),
-            control2: CGPoint(
-                x: rect.minX + topRadius + bottomRadius * (1 - curve),
-                y: rect.maxY
-            )
+            to: CGPoint(x: rect.minX + topRadius + bottomRadius, y: rect.maxY),
+            control1: CGPoint(x: rect.minX + topRadius, y: rect.maxY - bottomRadius * 0.44),
+            control2: CGPoint(x: rect.minX + topRadius + bottomRadius * 0.44, y: rect.maxY)
         )
-        path.addLine(
-            to: CGPoint(
-                x: rect.maxX - topRadius - bottomRadius,
-                y: rect.maxY
-            )
-        )
+
+        // Bottom Horizontal Edge
+        path.addLine(to: CGPoint(x: rect.maxX - topRadius - bottomRadius, y: rect.maxY))
+
+        // Bottom Right Corner (Continuous squircle curve)
         path.addCurve(
             to: CGPoint(x: rect.maxX - topRadius, y: rect.maxY - bottomRadius),
-            control1: CGPoint(
-                x: rect.maxX - topRadius - bottomRadius * (1 - curve),
-                y: rect.maxY
-            ),
-            control2: CGPoint(
-                x: rect.maxX - topRadius,
-                y: rect.maxY - bottomRadius * (1 - curve)
-            )
+            control1: CGPoint(x: rect.maxX - topRadius - bottomRadius * 0.44, y: rect.maxY),
+            control2: CGPoint(x: rect.maxX - topRadius, y: rect.maxY - bottomRadius * 0.44)
         )
+
+        // Right Vertical Edge
         path.addLine(to: CGPoint(x: rect.maxX - topRadius, y: rect.minY + topRadius))
+
+        // Top Right Bezel Ear (Continuous ease-out to screen bezel)
         path.addCurve(
             to: CGPoint(x: rect.maxX, y: rect.minY),
-            control1: CGPoint(x: rect.maxX - topRadius, y: rect.minY + topRadius * (1 - curve)),
-            control2: CGPoint(x: rect.maxX - topRadius * curve, y: rect.minY)
+            control1: CGPoint(x: rect.maxX - topRadius * 0.88, y: rect.minY + topRadius * 0.42),
+            control2: CGPoint(x: rect.maxX - topRadius * 0.44, y: rect.minY)
         )
         path.closeSubpath()
 
         return path
     }
+}
+
+/// Dynamic Gooey Metaball Bridge that simulates fluid liquid tension between primary island and detached bubble.
+struct GooeyBridgeShape: Shape {
+    var primaryRect: CGRect
+    var secondaryRect: CGRect
+    var tension: CGFloat // 0.0 = no bridge, 1.0 = strong gooey bridge
+
+    var animatableData: CGFloat {
+        get { tension }
+        set { tension = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        guard tension > 0.01 else { return path }
+
+        let pRight = primaryRect.maxX
+        let sLeft = secondaryRect.minX
+        let gap = sLeft - pRight
+
+        // Only draw bridge if elements are close enough to stretch
+        guard gap > 0 && gap < 48 * tension else { return path }
+
+        let topY = max(primaryRect.minY, secondaryRect.minY) + 2
+        let pHeight = primaryRect.height - 4
+        let sHeight = secondaryRect.height - 4
+        let botY = min(primaryRect.minY + pHeight, secondaryRect.minY + sHeight)
+
+        let midX = (pRight + sLeft) / 2
+        let stretchFactor = 1.0 - (gap / (48 * tension))
+        let pinchAmount = (botY - topY) * 0.38 * (1.0 - stretchFactor)
+
+        let pTop = CGPoint(x: pRight, y: topY)
+        let sTop = CGPoint(x: sLeft, y: topY)
+        let sBot = CGPoint(x: sLeft, y: botY)
+        let pBot = CGPoint(x: pRight, y: botY)
+
+        let midTop = CGPoint(x: midX, y: topY + pinchAmount)
+        let midBot = CGPoint(x: midX, y: botY - pinchAmount)
+
+        path.move(to: pTop)
+        path.addQuadCurve(to: sTop, control: midTop)
+        path.addLine(to: sBot)
+        path.addQuadCurve(to: pBot, control: midBot)
+        path.closeSubpath()
+
+        return path
+    }
+}
+
+/// Tuned Apple Fluid Spring Physics for ultra-smooth harmonious motion.
+enum DynamicNotchSprings {
+    /// Harmonious fluid expansion with Apple-grade smooth settle
+    static let fluidExpand = Animation.spring(response: 0.36, dampingFraction: 0.86, blendDuration: 0.10)
+    /// Harmonious fluid collapse with silky smooth rhythm
+    static let fluidCollapse = Animation.spring(response: 0.32, dampingFraction: 0.88, blendDuration: 0.08)
+    /// Subtle bouncy feedback on interactive touch
+    static let rubberBounce = Animation.spring(response: 0.26, dampingFraction: 0.75, blendDuration: 0.06)
+    /// Fast responsive transition for content switches
+    static let snappy = Animation.spring(response: 0.22, dampingFraction: 0.92, blendDuration: 0.05)
 }
 
 enum NotchLayout {

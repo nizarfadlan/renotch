@@ -20,6 +20,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var isPinned: Bool
     @Published var customTimerMinutes = 30
     @Published var transientMessage: String?
+    @Published var authGlance: AuthGlance?
     @Published var settingsError: String?
     @Published private(set) var expandedSectionOverride: NotchSection?
     @Published private(set) var focusTakeoverSite: String = ""
@@ -49,6 +50,7 @@ final class AppModel: ObservableObject {
     private var messageWorkItem: DispatchWorkItem?
     private var browserActivityCancellable: AnyCancellable?
     private var musicActivityCancellable: AnyCancellable?
+    private var timerActivityCancellable: AnyCancellable?
     private var activityGlanceCancellable: AnyCancellable?
     private var focusBlockerCancellable: AnyCancellable?
     private var modeBeforeFileDrop: NotchMode = .compact
@@ -86,6 +88,9 @@ final class AppModel: ObservableObject {
             self?.objectWillChange.send()
         }
         musicActivityCancellable = music.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
+        timerActivityCancellable = timer.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
         focusBlockerCancellable = focusBlocker.objectWillChange.sink { [weak self] _ in
@@ -129,6 +134,12 @@ final class AppModel: ObservableObject {
     var currentSize: NSSize {
         switch mode {
         case .compact:
+            if authGlance != nil {
+                return NSSize(
+                    width: max(settings.compactWidth, 320),
+                    height: max(settings.compactHeight, 44)
+                )
+            }
             if browser.activeDownload != nil {
                 return NSSize(
                     width: max(settings.compactWidth, 340),
@@ -139,6 +150,12 @@ final class AppModel: ObservableObject {
                 return NSSize(
                     width: max(settings.compactWidth, 310),
                     height: max(settings.compactHeight, 48)
+                )
+            }
+            if transientMessage != nil {
+                return NSSize(
+                    width: max(settings.compactWidth, 340),
+                    height: settings.compactHeight
                 )
             }
             return NSSize(width: settings.compactWidth, height: settings.compactHeight)
@@ -163,6 +180,17 @@ final class AppModel: ObservableObject {
         case .focusTakeover:
             let screen = NSScreen.main?.frame.size ?? NSSize(width: 1440, height: 900)
             return screen
+        }
+    }
+
+    func triggerFaceIDGlance(title: String = "Face ID", subtitle: String = "Authenticated", duration: TimeInterval = 2.2) {
+        authGlance = AuthGlance(title: title, subtitle: subtitle, isSuccess: true)
+        NSHapticFeedbackManager.defaultPerformer.perform(.alignment, performanceTime: .default)
+        onPanelConfigurationChanged?()
+        DispatchQueue.main.asyncAfter(deadline: .now() + duration) { [weak self] in
+            guard let self else { return }
+            self.authGlance = nil
+            self.onPanelConfigurationChanged?()
         }
     }
 

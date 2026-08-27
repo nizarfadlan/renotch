@@ -2,7 +2,7 @@ import AppKit
 import Darwin
 import Foundation
 
-struct LocalSiteMetadata: Equatable {
+struct LocalSiteMetadata: Equatable, Sendable {
     let title: String?
     let faviconURL: URL?
 }
@@ -94,9 +94,7 @@ final class DeveloperActivityService: ObservableObject {
         guard !isRefreshing else { return }
         isRefreshing = true
         Task {
-            let snapshot = await Task.detached(priority: .utility) {
-                Self.collectSnapshot()
-            }.value
+            let snapshot = await Self.collectSnapshot()
             apply(snapshot)
         }
     }
@@ -130,7 +128,7 @@ final class DeveloperActivityService: ObservableObject {
 
     func stopContainer(_ container: DockerContainer) {
         guard let docker = Self.dockerExecutable() else { return }
-        Task.detached(priority: .utility) {
+        Task {
             _ = ShellCommand.run(docker, ["stop", container.id])
         }
         refreshSoon()
@@ -248,9 +246,9 @@ final class DeveloperActivityService: ObservableObject {
         }
     }
 
-    nonisolated private static func collectSnapshot() -> ActivityCollectionSnapshot {
+    nonisolated private static func collectSnapshot() async -> ActivityCollectionSnapshot {
         let processes = ProcessScanner.runningProcesses()
-        let servers = LocalhostMonitor.scan(processes: processes)
+        let servers = await LocalhostMonitor.scan(processes: processes)
         let tasks = TerminalActivityMonitor.scan(processes: processes)
         let containers = DockerActivityMonitor.scan()
         let candidateDirectories = (servers + tasks).compactMap(\.workingDirectory)
@@ -462,42 +460,38 @@ final class DeveloperActivityService: ObservableObject {
     }
 }
 
-private struct ActivityCollectionSnapshot {
+private struct ActivityCollectionSnapshot: Sendable {
     let activities: [DeveloperActivity]
     let containers: [DockerContainer]
     let gitSnapshot: GitActivitySnapshot?
 }
 
-private struct RunningProcess {
+private struct RunningProcess: Sendable {
     let pid: Int32
     let command: String
     let elapsed: String
 }
 
-private final class LocalSiteMetadataCache: @unchecked Sendable {
-    private struct LoadedMetadata {
+private actor LocalSiteMetadataCache {
+    private struct LoadedMetadata: Sendable {
         let title: String?
         let faviconData: Data?
     }
 
-    private struct Entry {
+    private struct Entry: Sendable {
         let metadata: LoadedMetadata?
         let fetchedAt: Date
     }
 
-    private let lock = NSLock()
     private var entries: [URL: Entry] = [:]
 
     func metadata(for url: URL) -> (title: String?, faviconData: Data?)? {
-        lock.lock()
         if let entry = entries[url] {
             let lifetime: TimeInterval = entry.metadata == nil ? 6 : 30
             if Date().timeIntervalSince(entry.fetchedAt) < lifetime {
-                lock.unlock()
                 return entry.metadata.map { ($0.title, $0.faviconData) }
             }
         }
-        lock.unlock()
 
         let html = ShellCommand.run("/usr/bin/curl", [
             "-g", "-sS", "--connect-timeout", "0.5", "--max-time", "1.5",
@@ -514,10 +508,7 @@ private final class LocalSiteMetadataCache: @unchecked Sendable {
             return data.isEmpty ? nil : data
         }
         let metadata = parsed.map { LoadedMetadata(title: $0.title, faviconData: faviconData) }
-
-        lock.lock()
         entries[url] = Entry(metadata: metadata, fetchedAt: Date())
-        lock.unlock()
         return metadata.map { ($0.title, $0.faviconData) }
     }
 }
@@ -542,7 +533,7 @@ private enum ProcessScanner {
 private enum LocalhostMonitor {
     private static let metadataCache = LocalSiteMetadataCache()
 
-    static func scan(processes: [RunningProcess]) -> [DeveloperActivity] {
+    static func scan(processes: [RunningProcess]) async -> [DeveloperActivity] {
         let processMap = Dictionary(uniqueKeysWithValues: processes.map { ($0.pid, $0) })
         let output = ShellCommand.run("/usr/sbin/lsof", ["-nP", "-iTCP", "-sTCP:LISTEN", "-Fpcn"])
         var pid: Int32?
@@ -597,7 +588,10 @@ private enum LocalhostMonitor {
                 packageJSON: packageJSON
             )
             let serverURL = URL(string: "http://localhost:\(port)")
-            let siteMetadata = serverURL.flatMap { metadataCache.metadata(for: $0) }
+            var siteMetadata: (title: String?, faviconData: Data?)?
+            if let serverURL {
+                siteMetadata = await metadataCache.metadata(for: serverURL)
+            }
             results.append(DeveloperActivity(
                 id: "server-\(pid)-\(port)",
                 kind: .localhost,

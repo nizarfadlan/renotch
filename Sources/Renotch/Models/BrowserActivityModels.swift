@@ -1,6 +1,6 @@
 import Foundation
 
-struct BrowserMediaActivity: Equatable, Identifiable {
+struct BrowserMediaActivity: Equatable, Identifiable, Sendable {
     let sessionID: String
     let title: String
     let channel: String
@@ -19,13 +19,13 @@ struct BrowserMediaActivity: Equatable, Identifiable {
     }
 }
 
-enum BrowserDownloadState: String, Codable {
+enum BrowserDownloadState: String, Codable, Sendable {
     case inProgress = "in_progress"
     case complete
     case interrupted
 }
 
-struct BrowserDownloadActivity: Equatable, Identifiable {
+struct BrowserDownloadActivity: Equatable, Identifiable, Sendable {
     let id: Int
     let filename: String
     let sourceURL: URL?
@@ -48,12 +48,12 @@ struct BrowserDownloadActivity: Equatable, Identifiable {
     var isFinished: Bool { state != .inProgress }
 }
 
-enum BrowserActivityPresentation: Hashable {
+enum BrowserActivityPresentation: Hashable, Sendable {
     case media(String, Bool, Int)
     case download(Int, BrowserDownloadState, Int64)
 }
 
-enum AdaptiveMediaSource: String, Equatable {
+enum AdaptiveMediaSource: String, Equatable, Sendable {
     case browser
     case music
 }

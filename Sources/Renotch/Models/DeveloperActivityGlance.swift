@@ -1,6 +1,20 @@
 import Foundation
 
-struct DeveloperActivityGlance: Equatable, Identifiable {
+struct AuthGlance: Equatable, Identifiable, Sendable {
+    let id: UUID
+    let title: String
+    let subtitle: String
+    let isSuccess: Bool
+
+    init(id: UUID = UUID(), title: String = "Face ID", subtitle: String = "Authenticated", isSuccess: Bool = true) {
+        self.id = id
+        self.title = title
+        self.subtitle = subtitle
+        self.isSuccess = isSuccess
+    }
+}
+
+struct DeveloperActivityGlance: Equatable, Identifiable, Sendable {
     let id: UUID
     let kind: DeveloperActivityKind
     let title: String
@@ -8,7 +22,8 @@ struct DeveloperActivityGlance: Equatable, Identifiable {
     let state: DeveloperActivityState
 }
 
-enum AdaptiveCompactPresentation: Equatable {
+enum AdaptiveCompactPresentation: Equatable, Sendable {
+    case faceID(AuthGlance)
     case download
     case codingGlance
     case browserMedia
@@ -18,12 +33,14 @@ enum AdaptiveCompactPresentation: Equatable {
 
 enum AdaptiveCompactArbitrator {
     static func resolve(
+        authGlance: AuthGlance? = nil,
         downloadAvailable: Bool,
         codingGlanceAvailable: Bool,
         mediaSource: AdaptiveMediaSource?,
         configuredContent: CompactNotchContent = .music,
         isTimerActive: Bool = false
     ) -> AdaptiveCompactPresentation {
+        if let authGlance { return .faceID(authGlance) }
         if downloadAvailable { return .download }
         if codingGlanceAvailable { return .codingGlance }
         if configuredContent != .music {

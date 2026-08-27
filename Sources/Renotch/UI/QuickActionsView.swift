@@ -11,6 +11,15 @@ struct QuickActionsView: View {
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: 8) {
+            ActionTile(title: "Face ID", icon: "faceid", tint: .notchAccent) {
+                model.collapse(force: true)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                    model.triggerFaceIDGlance()
+                }
+            }
+            ActionTile(title: "Focus 25m", icon: "timer", tint: .notchAccent) {
+                model.startTimer(minutes: 25, mode: .focus)
+            }
             ActionTile(title: "Finder", icon: "face.smiling") {
                 NSWorkspace.shared.open(URL(fileURLWithPath: NSHomeDirectory()))
             }
@@ -19,13 +28,6 @@ struct QuickActionsView: View {
             }
             ActionTile(title: "Screenshots", icon: "camera.viewfinder") {
                 openScreenshots()
-            }
-            ActionTile(title: "Focus 25m", icon: "timer", tint: .notchAccent) {
-                model.startTimer(minutes: 25, mode: .focus)
-            }
-            ActionTile(title: "Clear", icon: "trash") {
-                NSPasteboard.general.clearContents()
-                model.showMessage("Clipboard cleared")
             }
             ActionTile(title: "Settings", icon: "gearshape") {
                 AppDelegate.shared?.openSettings()
